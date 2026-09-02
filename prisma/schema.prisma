@@ -7,83 +7,247 @@ generator client {
   output   = "../generated/prisma"
 }
 
-model SavedSearch {
-  id        String   @id @default(cuid())
-  name      String
-  filters   String   // JSON string of filters
+model User {
+  id                 String   @id @default(cuid())
+  email              String   @unique
+  name               String
+  passwordHash       String
+  role               String   @default("RECRUITER") // ADMIN, RECRUITER
+  mustChangePassword Boolean  @default(false)
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  sessions             Session[]
+  searchRuns           SearchRun[]
+  savedSearches        SavedSearch[]
+  profileViews         ProfileView[]
+  watchlists           Watchlist[]
+  watchlistItemsAdded  WatchlistItem[]
+  favorites            Favorite[]
+  notes                Note[]
+  jobsCreated          Job[]
+  jobCandidatesOwned   JobCandidate[] @relation("JobCandidateOwner")
+  jobCandidatesUpdated JobCandidate[] @relation("JobCandidateUpdatedBy")
+  stageEvents          StageEvent[]
+}
+
+model Session {
+  id        String   @id // sha256 of the cookie token, never the token itself
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model Person {
+  id             String  @id @default(cuid())
+  profileUrl     String  @unique // the deduplication key
+  externalId     String?
+  fullName       String
+  headline       String?
+  currentTitle   String?
+  currentCompany String?
+  avatarUrl      String?
+  summary        String?
+
+  locationRaw String?
+  city        String?
+  country     String?
+  region      String?
+
+  industry             String?
+  highestDegree        String?
+  fieldsOfStudy        String  @default("[]")
+  totalYearsExperience Float?
+  workAuthorization    String? // entered by HR, never inferred
+
+  skills         String @default("[]")
+  experience     String @default("[]")
+  education      String @default("[]")
+  languages      String @default("[]")
+  certifications String @default("[]")
+  raw            String @default("{}")
+
+  firstSeenAt     DateTime @default(now())
+  lastRefreshedAt DateTime @default(now())
+
+  searchAppearances SearchRunPerson[]
+  profileViews      ProfileView[]
+  jobCandidates     JobCandidate[]
+  watchlistItems    WatchlistItem[]
+  favorites         Favorite[]
+  notes             Note[]
+
+  @@index([country])
+  @@index([region])
+  @@index([industry])
+  @@index([highestDegree])
 }
 
 model SearchRun {
+  id            String   @id @default(cuid())
+  name          String?
+  runId         String? // Apify run id; not unique, mock mode reuses one value
+  datasetId     String?
+  status        String   @default("RUNNING") // READY, RUNNING, SUCCEEDED, FAILED, TIMED-OUT, ABORTED
+  failureReason String?
+  filters       String
+  itemCount     Int      @default(0)
+  ownerId       String?
+  owner         User?    @relation(fields: [ownerId], references: [id])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  people SearchRunPerson[]
+
+  @@index([ownerId])
+  @@index([createdAt])
+}
+
+model SearchRunPerson {
+  id             String    @id @default(cuid())
+  searchRunId    String
+  searchRun      SearchRun @relation(fields: [searchRunId], references: [id], onDelete: Cascade)
+  personId       String
+  person         Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
+  score          Int?
+  scoreBreakdown String?
+  wasKnownBefore Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+
+  @@unique([searchRunId, personId])
+  @@index([personId])
+}
+
+model Job {
   id          String   @id @default(cuid())
-  runId       String?  // Apify run ID
-  datasetId   String?  // Apify dataset ID
-  status      String   @default("RUNNING") // READY, RUNNING, SUCCEEDED, FAILED, TIMED-OUT, ABORTED
-  filters     String   // JSON string of filters
-  itemCount   Int      @default(0)
+  title       String
+  location    String?
+  description String?
+  isArchived  Boolean  @default(false)
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  
-  candidates  Candidate[]
+
+  candidates JobCandidate[]
+
+  @@index([createdById])
 }
 
-model Candidate {
-  id                   String   @id @default(cuid())
-  externalId           String
-  fullName             String
-  headline             String?
-  currentTitle         String?
-  currentCompany       String?
-  location             String?
-  profileUrl           String   // Used for deduplication
-  avatarUrl            String?
-  summary              String?
-  skills               String   // JSON string of array
-  experience           String   // JSON string of array
-  education            String   // JSON string of array
-  languages            String?  // JSON string of array
-  certifications       String?  // JSON string of array
-  totalYearsExperience Float?
-  raw                  String   // JSON string
-  
-  score                Int?     // Score based on filters
-  scoreBreakdown       String?  // JSON string
+model JobCandidate {
+  id          String   @id @default(cuid())
+  jobId       String
+  job         Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  personId    String
+  person      Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+  stage       String   @default("Sourced") // Sourced, Contacted, Screening, Interview, Offer, Hired, Rejected
+  ownerId     String?
+  owner       User?    @relation("JobCandidateOwner", fields: [ownerId], references: [id])
+  updatedById String?
+  updatedBy   User?    @relation("JobCandidateUpdatedBy", fields: [updatedById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  searchRunId          String
-  searchRun            SearchRun @relation(fields: [searchRunId], references: [id])
-  
-  shortlistItems       ShortlistItem[]
-  notes                Note[]
+  events StageEvent[]
 
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  @@unique([jobId, personId])
+  @@index([personId])
+  @@index([stage])
 }
 
-model Shortlist {
+model StageEvent {
+  id             String       @id @default(cuid())
+  jobCandidateId String
+  jobCandidate   JobCandidate @relation(fields: [jobCandidateId], references: [id], onDelete: Cascade)
+  fromStage      String?
+  toStage        String
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+  createdAt      DateTime     @default(now())
+
+  @@index([jobCandidateId])
+}
+
+model ProfileView {
+  id            String   @id @default(cuid())
+  personId      String
+  person        Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  viewCount     Int      @default(1)
+  firstViewedAt DateTime @default(now())
+  lastViewedAt  DateTime @default(now())
+
+  @@unique([personId, userId])
+  @@index([userId])
+}
+
+model Watchlist {
   id        String   @id @default(cuid())
   name      String
-  items     ShortlistItem[]
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  isShared  Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  items WatchlistItem[]
+
+  @@index([ownerId])
 }
 
-model ShortlistItem {
+model WatchlistItem {
   id          String    @id @default(cuid())
-  shortlistId String
-  shortlist   Shortlist @relation(fields: [shortlistId], references: [id])
-  candidateId String
-  candidate   Candidate @relation(fields: [candidateId], references: [id])
-  stage       String    @default("Sourced") // Sourced, Contacted, Screening, Interview, Rejected
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  watchlistId String
+  watchlist   Watchlist @relation(fields: [watchlistId], references: [id], onDelete: Cascade)
+  personId    String
+  person      Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
+  addedById   String
+  addedBy     User      @relation(fields: [addedById], references: [id])
+  addedAt     DateTime  @default(now())
+
+  @@unique([watchlistId, personId])
+  @@index([personId])
+}
+
+model Favorite {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  personId  String
+  person    Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, personId])
+  @@index([personId])
 }
 
 model Note {
-  id          String    @id @default(cuid())
-  content     String
-  candidateId String
-  candidate   Candidate @relation(fields: [candidateId], references: [id])
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id        String   @id @default(cuid())
+  content   String
+  personId  String
+  person    Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+  authorId  String?
+  author    User?    @relation(fields: [authorId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([personId])
+}
+
+model SavedSearch {
+  id        String   @id @default(cuid())
+  name      String
+  filters   String
+  ownerId   String?
+  owner     User?    @relation(fields: [ownerId], references: [id])
+  isShared  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerId])
 }
