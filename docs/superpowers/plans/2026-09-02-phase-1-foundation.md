@@ -2643,7 +2643,7 @@ git commit -m "feat: migrate Candidate rows into deduplicated Person records"
 - Create: `prisma/backfill-normalize.ts`
 - Modify: `package.json`
 
-- [ ] **Step 1: Harden the Prisma client**
+- [x] **Step 1: Harden the Prisma client**
 
 `src/lib/prisma.ts` currently creates a new `PrismaClient` on every module evaluation, which under Next.js hot reload leaks connections, and it does not enable WAL — required for the several-HR-users-at-once case in the spec. Replace the whole file:
 
@@ -2671,9 +2671,9 @@ if (process.env.NODE_ENV !== 'production') {
 }
 ```
 
-- [ ] **Step 2: Write the backfill script**
+- [x] **Step 2: Write the backfill script**
 
-Create `prisma/backfill-normalize.ts`. It re-derives every normalised column from the stored raw JSON, and is safe to run repeatedly.
+Create `prisma/backfill-normalize.ts`. It re-derives every normalised column from the stored raw JSON, and is safe to run repeatedly. It must also survive a single bad row: if `normalizeProfile`/`JSON.parse` throws for one person, that failure is reported and the rest of the batch still runs, with the process exiting non-zero if any row failed.
 
 ```ts
 import { prisma } from '../src/lib/prisma'
@@ -2695,35 +2695,53 @@ function parse<T>(value: string | null, fallback: T): T {
 async function main() {
   const people = await prisma.person.findMany()
   let updated = 0
+  let failed = 0
+  const failures: { id: string; fullName: string; error: string }[] = []
 
   for (const person of people) {
-    const raw = parse<Record<string, unknown>>(person.raw, {})
-    const location = normalizeLocation(person.locationRaw)
-    const education = normalizeEducation(parse(person.education, []))
-    const languages = normalizeLanguages(parse(person.languages, []))
-    const years = totalYearsOfExperience(parse(person.experience, []))
-    const industry = normalizeIndustry(
-      typeof raw.industry === 'string' ? raw.industry : null,
-      person.currentCompany,
-    )
+    try {
+      const raw = parse<Record<string, unknown>>(person.raw, {})
+      const location = normalizeLocation(person.locationRaw)
+      const education = normalizeEducation(parse(person.education, []))
+      const languages = normalizeLanguages(parse(person.languages, []))
+      const years = totalYearsOfExperience(parse(person.experience, []))
+      const industry = normalizeIndustry(
+        typeof raw.industry === 'string' ? raw.industry : null,
+        person.currentCompany,
+      )
 
-    await prisma.person.update({
-      where: { id: person.id },
-      data: {
-        city: location.city,
-        country: location.country,
-        region: location.region,
-        highestDegree: education.highestDegree,
-        fieldsOfStudy: JSON.stringify(education.fieldsOfStudy),
-        languages: JSON.stringify(languages),
-        industry,
-        totalYearsExperience: years ?? person.totalYearsExperience,
-      },
-    })
-    updated += 1
+      await prisma.person.update({
+        where: { id: person.id },
+        data: {
+          city: location.city,
+          country: location.country,
+          region: location.region,
+          highestDegree: education.highestDegree,
+          fieldsOfStudy: JSON.stringify(education.fieldsOfStudy),
+          languages: JSON.stringify(languages),
+          industry,
+          totalYearsExperience: years ?? person.totalYearsExperience,
+        },
+      })
+      updated += 1
+    } catch (error) {
+      failed += 1
+      const message = error instanceof Error ? error.message : String(error)
+      failures.push({ id: person.id, fullName: person.fullName, error: message })
+      console.error(`failed to normalise person ${person.id} (${person.fullName}): ${message}`)
+    }
   }
 
-  console.log(`normalised ${updated} people`)
+  console.log(
+    `examined ${people.length} people, updated ${updated}, failed ${failed}`,
+  )
+
+  if (failed > 0) {
+    console.error(
+      `${failed} people failed normalisation: ${failures.map((f) => `${f.fullName} (${f.id})`).join(', ')}`,
+    )
+    process.exitCode = 1
+  }
 }
 
 main()
@@ -2734,7 +2752,7 @@ main()
   .finally(() => prisma.$disconnect())
 ```
 
-- [ ] **Step 3: Add the scripts**
+- [x] **Step 3: Add the scripts**
 
 `tsx` is needed to run TypeScript scripts outside Next.js.
 
@@ -2758,16 +2776,43 @@ And register the seed in `prisma.config.ts` by adding to the `migrations` block:
   },
 ```
 
-- [ ] **Step 4: Run the backfill and verify it worked**
+- [x] **Step 4: Run the backfill and verify it worked**
 
 ```bash
 npm run db:backfill
 node -e "const D=require('better-sqlite3');const db=new D('dev.db');console.log(db.prepare('SELECT fullName, city, country, region, highestDegree, totalYearsExperience FROM Person').all())"
 ```
 
-Expected: `normalised N people`, then rows showing populated `city` / `country` / `region` — for example Jane Doe as `San Francisco / United States / North America` with `highestDegree` of `Bachelor` and 5 years.
+Expected: `examined N people, updated N, failed 0`, then rows showing populated `city` / `country` / `region` — for example Jane Doe as `San Francisco / United States / North America` with `highestDegree` of `Bachelor` and 5 years. `John Smith` (`locationRaw` `"Remote"`) correctly gets `city`/`country`/`region` all null, since "Remote" is a work mode, not a place.
 
-- [ ] **Step 5: Commit**
+Actual output from both people:
+
+```
+[
+  {
+    fullName: 'Jane Doe',
+    city: 'San Francisco',
+    country: 'United States',
+    region: 'North America',
+    highestDegree: 'Bachelor',
+    industry: 'Technology',
+    totalYearsExperience: 5
+  },
+  {
+    fullName: 'John Smith',
+    city: null,
+    country: null,
+    region: null,
+    highestDegree: null,
+    industry: 'Technology',
+    totalYearsExperience: 1.5
+  }
+]
+```
+
+Running the script a second time reproduces `examined 2 people, updated 2, failed 0` and identical rows, confirming idempotency. `PRAGMA journal_mode` against `dev.db` afterward reports `wal`.
+
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/lib/prisma.ts prisma/backfill-normalize.ts prisma.config.ts package.json package-lock.json
