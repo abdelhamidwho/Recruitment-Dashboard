@@ -58,4 +58,31 @@ describe('normalizeLocation', () => {
     expect(normalizeLocation('')).toEqual({ raw: null, city: null, country: null, region: null })
     expect(normalizeLocation('   ')).toEqual({ raw: null, city: null, country: null, region: null })
   })
+
+  it('drops work-mode words from parts, leaving country alone', () => {
+    expect(normalizeLocation('Remote, United States')).toEqual({
+      raw: 'Remote, United States',
+      city: null,
+      country: 'United States',
+      region: 'North America',
+    })
+  })
+
+  it('strips parenthesised groups before parsing', () => {
+    expect(normalizeLocation('Cairo, Egypt (Remote)')).toEqual({
+      raw: 'Cairo, Egypt (Remote)',
+      city: 'Cairo',
+      country: 'Egypt',
+      region: 'MENA',
+    })
+  })
+
+  it('returns all nulls when all segments are work-mode words', () => {
+    expect(normalizeLocation('Remote, Remote')).toEqual({
+      raw: 'Remote, Remote',
+      city: null,
+      country: null,
+      region: null,
+    })
+  })
 })
