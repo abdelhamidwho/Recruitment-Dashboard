@@ -1281,8 +1281,47 @@ describe('normalizeLanguages', () => {
       ]),
     ).toEqual([{ name: 'English', level: 'Native' }])
   })
+
+  it('de-duplication is case-insensitive but preserves first-seen casing', () => {
+    expect(
+      normalizeLanguages([
+        { name: 'English', proficiency: 'Native or bilingual proficiency' },
+        { name: 'english' },
+      ]),
+    ).toEqual([{ name: 'English', level: 'Native' }])
+  })
+
+  it('treats a non-string name as absent and drops the entry', () => {
+    expect(normalizeLanguages([{ name: 42 }])).toEqual([])
+    expect(normalizeLanguages([{ name: {} }])).toEqual([])
+    expect(normalizeLanguages([{ name: [] }])).toEqual([])
+    expect(normalizeLanguages([{ language: 99 }])).toEqual([])
+  })
+
+  it('skips junk array elements without failing the whole array', () => {
+    expect(normalizeLanguages([null, { name: 'Arabic' }])).toEqual([{ name: 'Arabic', level: null }])
+    expect(normalizeLanguages([undefined, 'French'])).toEqual([{ name: 'French', level: null }])
+    expect(normalizeLanguages([null, undefined, 42, [], {}])).toEqual([])
+  })
+
+  it('returns [] for non-array input', () => {
+    expect(normalizeLanguages(null)).toEqual([])
+    expect(normalizeLanguages(undefined)).toEqual([])
+    expect(normalizeLanguages('English')).toEqual([])
+    expect(normalizeLanguages(42)).toEqual([])
+    expect(normalizeLanguages({})).toEqual([])
+  })
+
+  it('treats a non-string proficiency or level as absent, yielding level: null', () => {
+    expect(normalizeLanguages([{ name: 'Arabic', proficiency: 42 }])).toEqual([
+      { name: 'Arabic', level: null },
+    ])
+    expect(normalizeLanguages([{ name: 'Arabic', level: {} }])).toEqual([{ name: 'Arabic', level: null }])
+  })
 })
 ```
+
+The first six tests (through de-duplication) are written first, as a failing baseline. The remaining five tests are hardening cases added after the implementation passes the first six — see Step 5 below; they were checked by execution against the plan's implementation and it already satisfied every one without modification.
 
 - [ ] **Step 2: Run it to verify it fails**
 
@@ -1325,6 +1364,27 @@ function levelFor(value: unknown): LanguageLevel | null {
   return null
 }
 
+/**
+ * Normalizes a candidate's raw languages data into a de-duplicated list of
+ * `{ name, level }` entries.
+ *
+ * Accepted input shapes: `raw` may be an array whose elements are either
+ * bare strings (the language name, with an unknown level), or objects
+ * carrying the name under `name` or `language`, and the proficiency under
+ * `proficiency` or `level`. Any other input — non-array `raw`, or an array
+ * element that is `null`/`undefined`/a primitive/an object without a usable
+ * name — is skipped rather than throwing; a non-string `name`/`language` is
+ * treated as absent. This function never throws, for any input.
+ *
+ * De-duplication is by name, case-insensitively, keeping the first-seen
+ * casing and the first-seen level for that name.
+ *
+ * A `proficiency`/`level` value that isn't a string, or doesn't match any
+ * known LinkedIn proficiency wording, yields `level: null` rather than
+ * dropping the entry.
+ *
+ * `LANGUAGE_LEVELS` lists the possible levels ordered weakest to strongest.
+ */
 export function normalizeLanguages(raw: unknown): NormalizedLanguage[] {
   if (!Array.isArray(raw)) return []
 
@@ -1357,7 +1417,11 @@ export function normalizeLanguages(raw: unknown): NormalizedLanguage[] {
 Run: `npx vitest run tests/normalize/languages.test.ts`
 Expected: PASS, 6 tests.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Hardening, verified by execution**
+
+Reviews of the sibling `education.ts`/`experience.ts` modules found recurring defects around case-insensitive de-duplication, non-string names, junk array elements, non-array input, and non-string proficiency/level values. Five more tests were added to `tests/normalize/languages.test.ts` (shown in Step 1 above) to check each case explicitly against `normalizeLanguages`. Run: `npx vitest run tests/normalize/languages.test.ts` — expected and actual: PASS, 11 tests. The plan's Step 3 implementation already handled every case correctly (the `entry && typeof entry === 'object'` guard excludes `null`, the `typeof candidate === 'string'` check excludes non-string names, and `levelFor` checks `typeof value !== 'string'`), so no implementation change was needed beyond adding the doc comment on `normalizeLanguages` shown in Step 3.
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/lib/normalize/languages.ts tests/normalize/languages.test.ts
