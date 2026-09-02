@@ -2497,11 +2497,41 @@ npx prisma migrate dev --name phase1_foundation --create-only
 
 Expected output: "Prisma Migrate created the following migration without applying it". Note the created directory name.
 
+**What actually happened:** `migrate dev --create-only` refuses to run in a non-interactive shell, because dropping the non-empty `Candidate` table raises a data-loss warning it wants confirmed:
+
+```
+⚠️  Warnings for the current datasource:
+  • You are about to drop the `Candidate` table, which is not empty (2 rows).
+Error: Prisma Migrate has detected that the environment is non-interactive, which is not supported.
+```
+
+The equivalent SQL was generated instead with the read-only `migrate diff`, which cannot touch `dev.db`, and dropped into a hand-made migration directory. Note the two ordering constraints: the target directory must not exist yet when `--from-migrations` runs (an empty directory makes Prisma fail with `P3015`), and Prisma 7 renamed the flag to `--to-schema` (not `--to-schema-datamodel`).
+
+```bash
+# 1. generate to a scratch file first
+npx prisma migrate diff \
+  --from-migrations ./prisma/migrations \
+  --to-schema prisma/schema.prisma \
+  --script -o /tmp/generated.sql
+
+# 2. then create the directory and assemble migration.sql from it (see Step 4)
+mkdir -p prisma/migrations/20260902124248_phase1_foundation
+```
+
+The directory actually created was `prisma/migrations/20260902124248_phase1_foundation/`.
+
 - [ ] **Step 4: Insert the data copy into the generated SQL**
 
 Open the new `prisma/migrations/<timestamp>_phase1_foundation/migration.sql`. Prisma will have generated `CREATE TABLE` statements for the new models and `DROP TABLE "Candidate"` (plus drops for `Shortlist` and `ShortlistItem`).
 
-Move the `DROP TABLE "Candidate";` statement to the **very end of the file**, and immediately before it insert these two statements:
+**What the generator actually emitted.** The three `DROP TABLE` statements come *first*, before anything else — `Candidate` is literally the first statement in the file, each drop wrapped in its own `PRAGMA foreign_keys=off; … on;` pair. Then the eleven new `CREATE TABLE`s, then a single `RedefineTables` block that rebuilds **three** tables via the temp-table dance — `Note`, `SavedSearch` **and** `SearchRun`, all inside one shared `PRAGMA defer_foreign_keys=ON; PRAGMA foreign_keys=OFF;` … `PRAGMA foreign_keys=ON; PRAGMA defer_foreign_keys=OFF;` wrapper — and finally all the `CREATE INDEX` / `CREATE UNIQUE INDEX` statements, including `Person_profileUrl_key` and `SearchRunPerson_searchRunId_personId_key`.
+
+Two consequences worth knowing before editing:
+
+- The `Note` rebuild copies only `("content","createdAt","id","updatedAt")` into `new_Note`, whose `personId` is `TEXT NOT NULL` with no default. **This only works because `Note` is empty.** Any existing note row would abort the migration on a NOT NULL violation, and there is no `candidateId → personId` mapping in the generated SQL to fix it with. Check `SELECT COUNT(*) FROM "Note"` before applying anywhere else.
+- The unique indexes are created *after* the tables, at the very end, so the inserts must go after them too — which the placement below already guarantees.
+
+Move the `DROP TABLE "Candidate";` statement (with its pragma pair) to the **very end of the file**, and immediately before it insert these two statements:
 
 ```sql
 -- Carry every distinct profile into Person, keeping the most recently updated row per profileUrl.
@@ -2542,6 +2572,22 @@ The normalised columns (`city`, `country`, `region`, `industry`, `highestDegree`
 1. The whole file must stay wrapped in the `PRAGMA foreign_keys=OFF;` … `PRAGMA foreign_keys=ON;` pair Prisma generates. Do not remove it.
 2. Place the two `INSERT INTO` statements **after** any `SearchRun` rename completes, and immediately before `DROP TABLE "Candidate";` at the end. Verify by reading the file top to bottom: every table the inserts reference (`Person`, `SearchRunPerson`, `Candidate`) must already exist in its final form at that point.
 
+**The final statement order shipped** in `prisma/migrations/20260902124248_phase1_foundation/migration.sql` (314 lines):
+
+1. `DROP TABLE "Shortlist"` — own `PRAGMA foreign_keys=off/on` pair
+2. `DROP TABLE "ShortlistItem"` — own pragma pair
+3. `CREATE TABLE` × 11: `User`, `Session`, `Person`, `SearchRunPerson`, `Job`, `JobCandidate`, `StageEvent`, `ProfileView`, `Watchlist`, `WatchlistItem`, `Favorite`
+4. `RedefineTables` block, inside `PRAGMA defer_foreign_keys=ON; PRAGMA foreign_keys=OFF;` … `PRAGMA foreign_keys=ON; PRAGMA defer_foreign_keys=OFF;`:
+   - `new_Note` → insert → `DROP TABLE "Note"` → rename → `Note_personId_idx`
+   - `new_SavedSearch` → insert → `DROP TABLE "SavedSearch"` → rename → `SavedSearch_ownerId_idx`
+   - `new_SearchRun` → insert → `DROP TABLE "SearchRun"` → rename → `SearchRun_ownerId_createdAt_idx`, `SearchRun_createdAt_idx`
+5. All remaining `CREATE INDEX` / `CREATE UNIQUE INDEX` statements, ending with `Favorite_userId_personId_key`. Includes `Person_profileUrl_key` and `SearchRunPerson_searchRunId_personId_key`.
+6. **`INSERT INTO "Person" … SELECT … FROM "Candidate"`** (the hand-added data copy)
+7. **`INSERT INTO "SearchRunPerson" … SELECT … FROM "Candidate" JOIN "Person"`** (the hand-added data copy)
+8. `DROP TABLE "Candidate"` — moved here from position 1, keeping its own `PRAGMA foreign_keys=off/on` pair
+
+Nothing was removed from the generated SQL and no pragma was touched; the only edit was relocating the `Candidate` drop from the top to the bottom and adding the two inserts above it.
+
 - [ ] **Step 5: Run the migration test to verify it passes**
 
 Run: `npx vitest run tests/migration/candidate-to-person.test.ts`
@@ -2564,6 +2610,21 @@ node -e "const D=require('better-sqlite3');const db=new D('dev.db');console.log(
 ```
 
 Expected: a non-zero `people` count matching the number of distinct profile URLs that existed, and `users` of 0.
+
+Actual, against the live `dev.db` (2 old `Candidate` rows, both in the same run, 2 distinct profile URLs):
+
+```
+people { c: 2 }
+appearances { c: 2 }
+users { c: 0 }
+searchRuns { c: 4 }
+tables Favorite, Job, JobCandidate, Note, Person, ProfileView, SavedSearch, SearchRun,
+       SearchRunPerson, Session, StageEvent, User, Watchlist, WatchlistItem, _prisma_migrations
+```
+
+`Candidate`, `Shortlist` and `ShortlistItem` are gone. Both `Person` rows carry `locationRaw` ("San Francisco, CA" and "Remote") with `city`/`country`/`region`/`industry`/`highestDegree` null and `fieldsOfStudy` `'[]'`, waiting on the Task 11 backfill. Afterwards `npx prisma migrate status` reports "2 migrations found … Database schema is up to date!" and `npx prisma migrate diff --from-config-datasource --to-migrations ./prisma/migrations` reports "No difference detected".
+
+`npx tsc --noEmit` now reports four errors, all in the two files Task 18 deletes and rewrites (`src/app/api/export/route.ts`, `src/app/api/search/[runId]/route.ts`), because `prisma.candidate` and `include: { candidates: true }` no longer exist. They are left alone deliberately.
 
 - [ ] **Step 8: Commit**
 
