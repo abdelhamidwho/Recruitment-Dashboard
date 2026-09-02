@@ -1607,6 +1607,22 @@ describe('mapToCandidate', () => {
     }
   })
 
+  it('never throws on a null element inside an otherwise valid array', () => {
+    const rawItem = {
+      ...RAW,
+      skills: [null, 'Go'],
+      experience: [null, { title: 'Eng', company: 'Acme' }],
+      education: [null, { school: 'MIT' }],
+      certifications: [null, 'CKA'],
+    }
+    expect(() => mapToCandidate(rawItem)).not.toThrow()
+    const candidate = mapToCandidate(rawItem)
+    expect(candidate.skills).toEqual(['Go'])
+    expect(candidate.experience[1].title).toBe('Eng')
+    expect(candidate.education[1].school).toBe('MIT')
+    expect(candidate.certifications).toEqual(['CKA'])
+  })
+
   it('does not emit undefined entries for skills or certifications objects missing a name', () => {
     const rawItem = {
       ...RAW,
@@ -1849,7 +1865,9 @@ Second, export `mapToCandidate` and stop it discarding data. Replace the whole f
 // these array-shaped fields may be missing, null, or a truthy non-array (a number, a string,
 // or a plain object) rather than an array. `(x || []).map(...)` survives null/undefined but
 // throws on a truthy non-array, so every array-shaped field is guarded with Array.isArray
-// instead.
+// instead. Individual array elements are just as untrustworthy (e.g. `[null]`), so every
+// property read off an element below uses optional chaining rather than assuming the element
+// itself is a well-formed object.
 function asArray(value: unknown): any[] {
   return Array.isArray(value) ? value : [];
 }
@@ -1870,17 +1888,17 @@ export function mapToCandidate(rawItem: any): Candidate {
       .map((s: any) => (typeof s === "string" ? s : s?.name))
       .filter((s: unknown): s is string => typeof s === "string"),
     experience: asArray(rawItem.experience).map((exp: any) => ({
-      title: exp.title,
-      company: exp.company,
-      durationMonths: exp.durationMonths,
-      from: exp.startDate || exp.from,
-      to: exp.endDate || exp.to,
+      title: exp?.title,
+      company: exp?.company,
+      durationMonths: exp?.durationMonths,
+      from: exp?.startDate || exp?.from,
+      to: exp?.endDate || exp?.to,
     })),
     education: asArray(rawItem.education).map((ed: any) => ({
-      school: ed.school,
-      degree: ed.degreeName || ed.degree,
-      field: ed.fieldOfStudy || ed.field,
-      year: ed.year,
+      school: ed?.school,
+      degree: ed?.degreeName || ed?.degree,
+      field: ed?.fieldOfStudy || ed?.field,
+      year: ed?.year,
     })),
     languages: rawItem.languages || [],
     certifications: asArray(rawItem.certifications)
@@ -1958,7 +1976,7 @@ export function normalizeProfile(candidate: Candidate, now: Date = new Date()): 
 - [ ] **Step 7: Run the tests to verify they pass**
 
 Run: `npm test`
-Expected: PASS across all files — 5 buildBooleanQuery, 10 regions, 12 location, 13 experience, 15 education, 12 languages, 6 industry, 8 mapper, 4 normalizeProfile (`tests/normalize/index.test.ts`) — 85 tests total. (The regions/location/experience/education/languages counts are higher than the 7/7/8/7/6 originally estimated in Tasks 2–6, because those modules' own hardening tests were added as those tasks were actually built; 67 of the 85 were already passing before this task.)
+Expected: PASS across all files — 5 buildBooleanQuery, 10 regions, 12 location, 13 experience, 15 education, 12 languages, 6 industry, 9 mapper, 4 normalizeProfile (`tests/normalize/index.test.ts`) — 86 tests total. (The regions/location/experience/education/languages counts are higher than the 7/7/8/7/6 originally estimated in Tasks 2–6, because those modules' own hardening tests were added as those tasks were actually built; 67 of the 86 were already passing before this task.)
 
 - [ ] **Step 8: Verify the app still compiles**
 

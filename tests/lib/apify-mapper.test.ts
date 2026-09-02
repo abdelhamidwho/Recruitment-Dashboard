@@ -75,6 +75,23 @@ describe('mapToCandidate', () => {
     }
   })
 
+  it('never throws on a null element inside an otherwise valid array', () => {
+    const rawItem = {
+      ...RAW,
+      skills: [null, 'Go'],
+      experience: [null, { title: 'Eng', company: 'Acme' }],
+      education: [null, { school: 'MIT' }],
+      certifications: [null, 'CKA'],
+    }
+    expect(() => mapToCandidate(rawItem)).not.toThrow()
+    const candidate = mapToCandidate(rawItem)
+    expect(candidate.skills).toEqual(['Go'])
+    expect(candidate.experience[0]).toEqual({ title: undefined, company: undefined, durationMonths: undefined, from: undefined, to: undefined })
+    expect(candidate.experience[1].title).toBe('Eng')
+    expect(candidate.education[1].school).toBe('MIT')
+    expect(candidate.certifications).toEqual(['CKA'])
+  })
+
   it('does not emit undefined entries for skills or certifications objects missing a name', () => {
     const rawItem = {
       ...RAW,

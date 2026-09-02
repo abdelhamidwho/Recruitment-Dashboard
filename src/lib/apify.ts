@@ -86,7 +86,9 @@ function buildActorInput(filters: Partial<SearchFilters>) {
 // these array-shaped fields may be missing, null, or a truthy non-array (a number, a string,
 // or a plain object) rather than an array. `(x || []).map(...)` survives null/undefined but
 // throws on a truthy non-array, so every array-shaped field is guarded with Array.isArray
-// instead.
+// instead. Individual array elements are just as untrustworthy (e.g. `[null]`), so every
+// property read off an element below uses optional chaining rather than assuming the element
+// itself is a well-formed object.
 function asArray(value: unknown): any[] {
   return Array.isArray(value) ? value : [];
 }
@@ -107,17 +109,17 @@ export function mapToCandidate(rawItem: any): Candidate {
       .map((s: any) => (typeof s === "string" ? s : s?.name))
       .filter((s: unknown): s is string => typeof s === "string"),
     experience: asArray(rawItem.experience).map((exp: any) => ({
-      title: exp.title,
-      company: exp.company,
-      durationMonths: exp.durationMonths,
-      from: exp.startDate || exp.from,
-      to: exp.endDate || exp.to,
+      title: exp?.title,
+      company: exp?.company,
+      durationMonths: exp?.durationMonths,
+      from: exp?.startDate || exp?.from,
+      to: exp?.endDate || exp?.to,
     })),
     education: asArray(rawItem.education).map((ed: any) => ({
-      school: ed.school,
-      degree: ed.degreeName || ed.degree,
-      field: ed.fieldOfStudy || ed.field,
-      year: ed.year,
+      school: ed?.school,
+      degree: ed?.degreeName || ed?.degree,
+      field: ed?.fieldOfStudy || ed?.field,
+      year: ed?.year,
     })),
     languages: rawItem.languages || [],
     certifications: asArray(rawItem.certifications)
