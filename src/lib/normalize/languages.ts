@@ -5,6 +5,13 @@ export interface NormalizedLanguage {
   level: LanguageLevel | null
 }
 
+// Order is load-bearing: levelFor returns the first pattern that matches, so a more specific
+// pattern must precede any later pattern whose alternation contains it as a substring (e.g.
+// "Full professional proficiency" must match the "Full professional" entry before it ever
+// reaches "Professional", whose alternation contains the bare substring "professional").
+// LEVEL_PATTERNS must also cover every member of the LanguageLevel union — the two are kept in
+// step by hand; adding a level to the union without a corresponding pattern here (in the right
+// relative position) leaves that level unreachable.
 const LEVEL_PATTERNS: { level: LanguageLevel; pattern: RegExp }[] = [
   { level: 'Native', pattern: /native|bilingual|mother tongue/i },
   { level: 'Full professional', pattern: /full professional|fluent/i },
@@ -13,13 +20,13 @@ const LEVEL_PATTERNS: { level: LanguageLevel; pattern: RegExp }[] = [
   { level: 'Elementary', pattern: /elementary|basic|beginner/i },
 ]
 
-export const LANGUAGE_LEVELS: LanguageLevel[] = [
+export const LANGUAGE_LEVELS: readonly LanguageLevel[] = Object.freeze([
   'Elementary',
   'Limited',
   'Professional',
   'Full professional',
   'Native',
-]
+])
 
 function levelFor(value: unknown): LanguageLevel | null {
   if (typeof value !== 'string' || !value.trim()) return null
@@ -42,7 +49,11 @@ function levelFor(value: unknown): LanguageLevel | null {
  * treated as absent. This function never throws, for any input.
  *
  * De-duplication is by name, case-insensitively, keeping the first-seen
- * casing and the first-seen level for that name.
+ * casing and the first-seen level for that name. This dedup is scoped to a
+ * single candidate's array only: two different candidates may record the
+ * same language with different casing (e.g. "English" vs "ENGLISH"), so any
+ * cross-candidate aggregation (e.g. a facet count) must also group names
+ * case-insensitively, or it will split one language into multiple buckets.
  *
  * A `proficiency`/`level` value that isn't a string, or doesn't match any
  * known LinkedIn proficiency wording, yields `level: null` rather than

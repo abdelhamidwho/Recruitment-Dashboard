@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeLanguages } from '@/lib/normalize/languages'
+import { normalizeLanguages, LANGUAGE_LEVELS } from '@/lib/normalize/languages'
 
 describe('normalizeLanguages', () => {
   it('accepts bare strings with an unknown level', () => {
@@ -86,5 +86,14 @@ describe('normalizeLanguages', () => {
       { name: 'Arabic', level: null },
     ])
     expect(normalizeLanguages([{ name: 'Arabic', level: {} }])).toEqual([{ name: 'Arabic', level: null }])
+  })
+
+  it('LANGUAGE_LEVELS is frozen and cannot be mutated', () => {
+    expect(LANGUAGE_LEVELS).toContain('Native')
+    const originalLength = LANGUAGE_LEVELS.length
+    expect(() => {
+      ;(LANGUAGE_LEVELS as any).push('FakeLevel')
+    }).toThrow()
+    expect(LANGUAGE_LEVELS.length).toBe(originalLength)
   })
 })

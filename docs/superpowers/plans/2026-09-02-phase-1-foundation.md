@@ -1230,7 +1230,7 @@ Create `tests/normalize/languages.test.ts`:
 
 ```ts
 import { describe, expect, it } from 'vitest'
-import { normalizeLanguages } from '@/lib/normalize/languages'
+import { normalizeLanguages, LANGUAGE_LEVELS } from '@/lib/normalize/languages'
 
 describe('normalizeLanguages', () => {
   it('accepts bare strings with an unknown level', () => {
@@ -1318,10 +1318,19 @@ describe('normalizeLanguages', () => {
     ])
     expect(normalizeLanguages([{ name: 'Arabic', level: {} }])).toEqual([{ name: 'Arabic', level: null }])
   })
+
+  it('LANGUAGE_LEVELS is frozen and cannot be mutated', () => {
+    expect(LANGUAGE_LEVELS).toContain('Native')
+    const originalLength = LANGUAGE_LEVELS.length
+    expect(() => {
+      ;(LANGUAGE_LEVELS as any).push('FakeLevel')
+    }).toThrow()
+    expect(LANGUAGE_LEVELS.length).toBe(originalLength)
+  })
 })
 ```
 
-The first six tests (through de-duplication) are written first, as a failing baseline. The remaining five tests are hardening cases added after the implementation passes the first six — see Step 5 below; they were checked by execution against the plan's implementation and it already satisfied every one without modification.
+The first six tests (through de-duplication) are written first, as a failing baseline. The next five are hardening cases added after the implementation passes the first six — see Step 5 below. The final test (LANGUAGE_LEVELS frozen) was added in Step 7 below, once `LANGUAGE_LEVELS` was frozen to match the `KNOWN_COUNTRIES` convention in `src/lib/normalize/regions.ts`.
 
 - [ ] **Step 2: Run it to verify it fails**
 
@@ -1340,6 +1349,13 @@ export interface NormalizedLanguage {
   level: LanguageLevel | null
 }
 
+// Order is load-bearing: levelFor returns the first pattern that matches, so a more specific
+// pattern must precede any later pattern whose alternation contains it as a substring (e.g.
+// "Full professional proficiency" must match the "Full professional" entry before it ever
+// reaches "Professional", whose alternation contains the bare substring "professional").
+// LEVEL_PATTERNS must also cover every member of the LanguageLevel union — the two are kept in
+// step by hand; adding a level to the union without a corresponding pattern here (in the right
+// relative position) leaves that level unreachable.
 const LEVEL_PATTERNS: { level: LanguageLevel; pattern: RegExp }[] = [
   { level: 'Native', pattern: /native|bilingual|mother tongue/i },
   { level: 'Full professional', pattern: /full professional|fluent/i },
@@ -1348,13 +1364,13 @@ const LEVEL_PATTERNS: { level: LanguageLevel; pattern: RegExp }[] = [
   { level: 'Elementary', pattern: /elementary|basic|beginner/i },
 ]
 
-export const LANGUAGE_LEVELS: LanguageLevel[] = [
+export const LANGUAGE_LEVELS: readonly LanguageLevel[] = Object.freeze([
   'Elementary',
   'Limited',
   'Professional',
   'Full professional',
   'Native',
-]
+])
 
 function levelFor(value: unknown): LanguageLevel | null {
   if (typeof value !== 'string' || !value.trim()) return null
@@ -1377,7 +1393,11 @@ function levelFor(value: unknown): LanguageLevel | null {
  * treated as absent. This function never throws, for any input.
  *
  * De-duplication is by name, case-insensitively, keeping the first-seen
- * casing and the first-seen level for that name.
+ * casing and the first-seen level for that name. This dedup is scoped to a
+ * single candidate's array only: two different candidates may record the
+ * same language with different casing (e.g. "English" vs "ENGLISH"), so any
+ * cross-candidate aggregation (e.g. a facet count) must also group names
+ * case-insensitively, or it will split one language into multiple buckets.
  *
  * A `proficiency`/`level` value that isn't a string, or doesn't match any
  * known LinkedIn proficiency wording, yields `level: null` rather than
@@ -1421,7 +1441,18 @@ Expected: PASS, 6 tests.
 
 Reviews of the sibling `education.ts`/`experience.ts` modules found recurring defects around case-insensitive de-duplication, non-string names, junk array elements, non-array input, and non-string proficiency/level values. Five more tests were added to `tests/normalize/languages.test.ts` (shown in Step 1 above) to check each case explicitly against `normalizeLanguages`. Run: `npx vitest run tests/normalize/languages.test.ts` — expected and actual: PASS, 11 tests. The plan's Step 3 implementation already handled every case correctly (the `entry && typeof entry === 'object'` guard excludes `null`, the `typeof candidate === 'string'` check excludes non-string names, and `levelFor` checks `typeof value !== 'string'`), so no implementation change was needed beyond adding the doc comment on `normalizeLanguages` shown in Step 3.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Post-approval follow-ups**
+
+Four one-line follow-ups from code review, applied to `src/lib/normalize/languages.ts` and shown inline in Step 3 above:
+
+1. `LANGUAGE_LEVELS` is now `Object.freeze`d and typed `readonly LanguageLevel[]`, matching the `KNOWN_COUNTRIES` convention in `src/lib/normalize/regions.ts`. A test was added asserting a `.push` on it throws (checked by temporarily removing the freeze — the test failed as expected, then passed again once restored).
+2. A comment above `LEVEL_PATTERNS` documents that pattern order is load-bearing (more specific patterns must precede any pattern whose alternation contains them as a substring).
+3. The same comment documents that `LEVEL_PATTERNS` must cover every member of the `LanguageLevel` union, kept in step by hand — matching the analogous coupling comment in `education.ts`.
+4. The doc comment on `normalizeLanguages` now notes that its case-insensitive de-duplication is scoped to a single candidate's array, and that cross-candidate aggregation (e.g. Phase 2's facet counts) must also group case-insensitively.
+
+Run: `npx vitest run tests/normalize/languages.test.ts` — PASS, 12 tests. Run: `npm test` — PASS, 67 tests (66 prior + 1 new freeze test).
+
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/lib/normalize/languages.ts tests/normalize/languages.test.ts
