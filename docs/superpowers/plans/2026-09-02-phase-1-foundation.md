@@ -2096,6 +2096,20 @@ git commit -m "chore: baseline existing sqlite database for prisma migrate"
 Open `prisma/schema.prisma`. Keep the `datasource` and `generator` blocks exactly as they are — the missing `url` is correct for Prisma 7, which reads it from `prisma.config.ts`. Replace everything after the generator block with:
 
 ```prisma
+// Attribution relations (SearchRun.owner, Job.createdBy, WatchlistItem.addedBy,
+// StageEvent.user, JobCandidate.owner, JobCandidate.updatedBy, Note.author,
+// SavedSearch.owner) deliberately omit onDelete, so Prisma restricts the delete
+// by default. This app deactivates users via User.isActive and never deletes
+// them, so a restricted delete is the correct behavior: deleting a user must
+// never cascade away the organisation's search, job or note history. Do not
+// add onDelete: Cascade (or SetNull — full user deletion is not supported) to
+// any of these edges.
+//
+// Ownership nullability follows a rule, not an oversight: SearchRun.ownerId,
+// Note.authorId and SavedSearch.ownerId are optional because the migration
+// carries pre-authentication rows that have no owner. Job.createdById,
+// Watchlist.ownerId and WatchlistItem.addedById are required because those are
+// new Phase 1 concepts that can only ever be created by an authenticated action.
 model User {
   id                 String   @id @default(cuid())
   email              String   @unique
@@ -2116,8 +2130,8 @@ model User {
   favorites            Favorite[]
   notes                Note[]
   jobsCreated          Job[]
-  jobCandidatesOwned   JobCandidate[] @relation("JobCandidateOwner")
-  jobCandidatesUpdated JobCandidate[] @relation("JobCandidateUpdatedBy")
+  jobCandidatesOwned   JobCandidate[]  @relation("JobCandidateOwner")
+  jobCandidatesUpdated JobCandidate[]  @relation("JobCandidateUpdatedBy")
   stageEvents          StageEvent[]
 }
 
@@ -2129,6 +2143,7 @@ model Session {
   createdAt DateTime @default(now())
 
   @@index([userId])
+  @@index([expiresAt]) // cleanup deletes expired sessions in bulk
 }
 
 model Person {
@@ -2192,8 +2207,8 @@ model SearchRun {
 
   people SearchRunPerson[]
 
-  @@index([ownerId])
-  @@index([createdAt])
+  @@index([ownerId, createdAt]) // search history: WHERE ownerId = ? ORDER BY createdAt DESC
+  @@index([createdAt]) // unfiltered listing across all owners
 }
 
 model SearchRunPerson {
@@ -2203,7 +2218,7 @@ model SearchRunPerson {
   personId       String
   person         Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
   score          Int?
-  scoreBreakdown String?
+  scoreBreakdown String? // null means "not computed"; contrast Person.raw, whose default "{}" means "computed, nothing in it" — callers JSON.parse defaulted columns without a null check
   wasKnownBefore Boolean   @default(false)
   createdAt      DateTime  @default(now())
 
@@ -2245,7 +2260,7 @@ model JobCandidate {
 
   @@unique([jobId, personId])
   @@index([personId])
-  @@index([stage])
+  @@index([jobId, stage]) // pipeline board: WHERE jobId = ? GROUP BY stage
 }
 
 model StageEvent {
