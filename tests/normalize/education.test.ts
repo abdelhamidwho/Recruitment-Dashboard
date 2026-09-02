@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeEducation } from '@/lib/normalize/education'
+import { normalizeEducation, type EducationEntry } from '@/lib/normalize/education'
 
 describe('normalizeEducation', () => {
   it('reads level and field out of a combined degree string', () => {
@@ -88,5 +88,41 @@ describe('normalizeEducation', () => {
     expect(
       normalizeEducation([{ school: 42 as unknown as string, degree: {} as unknown as string, field: [] as unknown as string }]),
     ).toEqual({ highestDegree: null, fieldsOfStudy: [], schools: [] })
+  })
+
+  it('skips a null or non-object element rather than throwing, and keeps the rest', () => {
+    const validEntry = { school: 'X', degree: 'BSc Physics' }
+    const expected = { highestDegree: 'Bachelor', fieldsOfStudy: ['Physics'], schools: ['X'] }
+    expect(normalizeEducation([null as unknown as EducationEntry, validEntry])).toEqual(expected)
+    expect(normalizeEducation([undefined as unknown as EducationEntry, validEntry])).toEqual(expected)
+  })
+
+  it('returns the empty-result shape rather than throwing when every element is junk', () => {
+    expect(
+      normalizeEducation([
+        null as unknown as EducationEntry,
+        42 as unknown as EducationEntry,
+        'text' as unknown as EducationEntry,
+        [] as unknown as EducationEntry,
+      ]),
+    ).toEqual({ highestDegree: null, fieldsOfStudy: [], schools: [] })
+  })
+
+  it('de-duplicates fields of study case-insensitively, keeping the first-seen casing', () => {
+    expect(
+      normalizeEducation([
+        { school: 'A', degree: 'BSc', field: 'Computer Science' },
+        { school: 'B', degree: 'MSc', field: 'computer science' },
+      ]).fieldsOfStudy,
+    ).toEqual(['Computer Science'])
+  })
+
+  it('de-duplicates schools case-insensitively, keeping the first-seen casing', () => {
+    expect(
+      normalizeEducation([
+        { school: 'MIT', degree: 'BSc' },
+        { school: 'mit', degree: 'MSc' },
+      ]).schools,
+    ).toEqual(['MIT'])
   })
 })
