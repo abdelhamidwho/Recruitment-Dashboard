@@ -79,4 +79,27 @@ describe('totalYearsOfExperience', () => {
       totalYearsOfExperience([{ from: '2024-01-01', to: '2020-01-01' }], NOW),
     ).toBeNull()
   })
+
+  it('skips non-object array elements instead of throwing, and still counts the good ones', () => {
+    expect(
+      totalYearsOfExperience([null as any, { durationMonths: 12 }], NOW),
+    ).toBe(1)
+  })
+
+  it('returns null without throwing when every array element is junk', () => {
+    expect(totalYearsOfExperience([null as any], NOW)).toBeNull()
+    expect(totalYearsOfExperience([undefined as any], NOW)).toBeNull()
+    expect(
+      totalYearsOfExperience([null as any, 42 as any, 'text' as any, [] as any], NOW),
+    ).toBeNull()
+  })
+
+  it('treats non-string from/to as absent and falls back to durationMonths', () => {
+    expect(
+      totalYearsOfExperience(
+        [{ from: 42 as any, to: {} as any, durationMonths: 12 }],
+        NOW,
+      ),
+    ).toBe(1)
+  })
 })

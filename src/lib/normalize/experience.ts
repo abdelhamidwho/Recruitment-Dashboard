@@ -13,10 +13,14 @@ interface Interval {
 
 const MS_PER_MONTH = (365.25 / 12) * 24 * 60 * 60 * 1000
 
-function parseDate(value: string | undefined): number | null {
-  if (!value) return null
+function parseDate(value: unknown): number | null {
+  if (typeof value !== 'string' || value.length === 0) return null
   const time = Date.parse(value)
   return Number.isNaN(time) ? null : time
+}
+
+function isEntry(value: unknown): value is ExperienceEntry {
+  return typeof value === 'object' && value !== null
 }
 
 function mergedMonths(intervals: Interval[]): number {
@@ -62,6 +66,15 @@ function mergedMonths(intervals: Interval[]): number {
  * - A `durationMonths` that is negative, `NaN`, or not a number is silently
  *   ignored. This function never throws and never logs — a scraper producing
  *   bad values simply does not surface here; that is a separate concern.
+ * - Robustness against malformed scraper input: `entries` may itself contain
+ *   `null`, `undefined`, or other non-object elements (raw scraped JSON is
+ *   typed as `any`, so this is genuinely reachable) — such elements are
+ *   skipped and the remaining entries are still processed, rather than one
+ *   junk element destroying the whole calculation. Likewise, a `from` or `to`
+ *   that is not a string (a number, array, object, etc.) is treated as absent
+ *   rather than being coerced into a date — coercion can otherwise produce a
+ *   bogus interval (e.g. `Date.parse` on a small number resolves to a real,
+ *   nonsensical date decades away) instead of leaving the value out.
  * - Returns `null` when there is nothing to measure (no entries, or no entry
  *   yields any usable interval or duration) — never `0` for "no data". A real,
  *   very short tenure (e.g. a two-week contract) can legitimately round to the
@@ -83,6 +96,7 @@ export function totalYearsOfExperience(
   let looseMonths = 0
 
   for (const entry of entries) {
+    if (!isEntry(entry)) continue
     const start = parseDate(entry.from)
     if (start !== null) {
       const end = parseDate(entry.to) ?? now.getTime()
