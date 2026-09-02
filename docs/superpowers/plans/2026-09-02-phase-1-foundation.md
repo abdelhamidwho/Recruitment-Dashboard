@@ -496,6 +496,31 @@ describe('normalizeLocation', () => {
       region: null,
     })
   })
+
+  it('strips nested parentheses without leaving stray punctuation', () => {
+    expect(normalizeLocation('(())')).toEqual({
+      raw: '(())',
+      city: null,
+      country: null,
+      region: null,
+    })
+    // "(A ((B)) C" strips to "A C" with no stray parens
+    expect(normalizeLocation('A ((B)) C')).toEqual({
+      raw: 'A ((B)) C',
+      city: 'A C',
+      country: null,
+      region: null,
+    })
+  })
+
+  it('strips multi-part parenthetical notes', () => {
+    expect(normalizeLocation('Cairo, Egypt (Remote, Hybrid)')).toEqual({
+      raw: 'Cairo, Egypt (Remote, Hybrid)',
+      city: 'Cairo',
+      country: 'Egypt',
+      region: 'MENA',
+    })
+  })
 })
 ```
 
@@ -524,6 +549,12 @@ const NOT_A_PLACE = new Set(['remote', 'worldwide', 'anywhere', 'global', 'n/a',
  * US state lookup: two-letter codes are exhaustive (all 50 states plus DC);
  * full-name spellings are only the common ones seen in profile data, with
  * abbreviations covering the rest. This partial list is deliberate, not unfinished.
+ *
+ * Note: When combined with parenthesis stripping, `"New York (NY)"` strips to `"New York"`,
+ * which is in this set, so it resolves to country='United States' with city=null.
+ * This narrow interaction only affects the few full-name US states that are also city names
+ * (New York, Washington, Georgia) when written with parenthetical abbreviations.
+ * The ordinary "New York, NY" form is unaffected and still works correctly.
  */
 const US_STATES = new Set([
   'al','ak','az','ar','ca','co','ct','de','fl','ga','hi','id','il','in','ia','ks','ky','la','me',
@@ -557,8 +588,12 @@ export function normalizeLocation(raw: string | null | undefined): NormalizedLoc
     return { raw: trimmed, city: null, country: null, region: null }
   }
 
-  // Strip parenthesised groups (e.g., "Cairo, Egypt (Remote)" -> "Cairo, Egypt")
-  const cleaned = trimmed.replace(/\s*\([^)]*\)\s*/g, '').trim()
+  // Strip parenthesised groups iteratively to handle nesting (e.g., "Cairo, Egypt (Remote)" -> "Cairo, Egypt")
+  // Using [^()] instead of [^)] ensures we handle nested parens by stripping innermost first
+  let cleaned = trimmed
+  while (/\([^()]*\)/.test(cleaned)) {
+    cleaned = cleaned.replace(/\s*\([^()]*\)\s*/g, ' ').trim()
+  }
 
   const parts = cleaned
     .split(',')
@@ -591,7 +626,7 @@ export function normalizeLocation(raw: string | null | undefined): NormalizedLoc
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `npx vitest run tests/normalize/location.test.ts`
-Expected: PASS, 10 tests.
+Expected: PASS, 12 tests.
 
 - [ ] **Step 5: Commit**
 

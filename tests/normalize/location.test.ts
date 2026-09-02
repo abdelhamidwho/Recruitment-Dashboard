@@ -85,4 +85,29 @@ describe('normalizeLocation', () => {
       region: null,
     })
   })
+
+  it('strips nested parentheses without leaving stray punctuation', () => {
+    expect(normalizeLocation('(())')).toEqual({
+      raw: '(())',
+      city: null,
+      country: null,
+      region: null,
+    })
+    // "A ((B)) C" strips to "A C" with no stray parens
+    expect(normalizeLocation('A ((B)) C')).toEqual({
+      raw: 'A ((B)) C',
+      city: 'A C',
+      country: null,
+      region: null,
+    })
+  })
+
+  it('strips multi-part parenthetical notes', () => {
+    expect(normalizeLocation('Cairo, Egypt (Remote, Hybrid)')).toEqual({
+      raw: 'Cairo, Egypt (Remote, Hybrid)',
+      city: 'Cairo',
+      country: 'Egypt',
+      region: 'MENA',
+    })
+  })
 })
