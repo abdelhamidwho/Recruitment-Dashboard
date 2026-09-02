@@ -178,7 +178,7 @@ Create `tests/normalize/regions.test.ts`:
 
 ```ts
 import { describe, expect, it } from 'vitest'
-import { canonicalCountry, regionForCountry } from '@/lib/normalize/regions'
+import { canonicalCountry, regionForCountry, KNOWN_COUNTRIES } from '@/lib/normalize/regions'
 
 describe('canonicalCountry', () => {
   it('expands common abbreviations', () => {
@@ -222,6 +222,31 @@ describe('regionForCountry', () => {
     expect(regionForCountry('Atlantis')).toBeNull()
   })
 })
+
+describe('prototype chain hardening', () => {
+  it('canonicalCountry returns null for prototype chain properties', () => {
+    expect(canonicalCountry('constructor')).toBeNull()
+    expect(canonicalCountry('__proto__')).toBeNull()
+    expect(canonicalCountry('toString')).toBeNull()
+    expect(canonicalCountry('hasOwnProperty')).toBeNull()
+  })
+
+  it('regionForCountry returns null for prototype chain properties', () => {
+    expect(regionForCountry('constructor')).toBeNull()
+    expect(regionForCountry('__proto__')).toBeNull()
+    expect(regionForCountry('toString')).toBeNull()
+    expect(regionForCountry('hasOwnProperty')).toBeNull()
+  })
+
+  it('KNOWN_COUNTRIES is frozen and cannot be mutated', () => {
+    expect(KNOWN_COUNTRIES).toContain('Egypt')
+    const originalLength = KNOWN_COUNTRIES.length
+    expect(() => {
+      ;(KNOWN_COUNTRIES as any).push('FakeCountry')
+    }).toThrow()
+    expect(KNOWN_COUNTRIES.length).toBe(originalLength)
+  })
+})
 ```
 
 - [ ] **Step 2: Run it to verify it fails**
@@ -245,7 +270,9 @@ export type Region =
   | 'East Asia'
   | 'Oceania'
 
-const ALIASES: Record<string, string> = {
+// Aliases takes precedence over the country table in canonicalCountry lookups
+const ALIASES: Record<string, string> = Object.create(null)
+Object.assign(ALIASES, {
   uae: 'United Arab Emirates',
   'u.a.e.': 'United Arab Emirates',
   emirates: 'United Arab Emirates',
@@ -264,9 +291,10 @@ const ALIASES: Record<string, string> = {
   scotland: 'United Kingdom',
   wales: 'United Kingdom',
   'northern ireland': 'United Kingdom',
-}
+})
 
-const COUNTRY_REGIONS: Record<string, Region> = {
+const COUNTRY_REGIONS: Record<string, Region> = Object.create(null)
+Object.assign(COUNTRY_REGIONS, {
   'United Arab Emirates': 'GCC',
   'Saudi Arabia': 'GCC',
   Qatar: 'GCC',
@@ -334,11 +362,12 @@ const COUNTRY_REGIONS: Record<string, Region> = {
   Thailand: 'East Asia',
   Australia: 'Oceania',
   'New Zealand': 'Oceania',
-}
+})
 
-const BY_LOWERCASE: Record<string, string> = Object.fromEntries(
+const BY_LOWERCASE: Record<string, string> = Object.create(null)
+Object.assign(BY_LOWERCASE, Object.fromEntries(
   Object.keys(COUNTRY_REGIONS).map((name) => [name.toLowerCase(), name]),
-)
+))
 
 export function canonicalCountry(value: string | null | undefined): string | null {
   if (!value) return null
@@ -352,13 +381,13 @@ export function regionForCountry(value: string | null | undefined): Region | nul
   return country ? COUNTRY_REGIONS[country] : null
 }
 
-export const KNOWN_COUNTRIES = Object.keys(COUNTRY_REGIONS)
+export const KNOWN_COUNTRIES: readonly string[] = Object.freeze(Object.keys(COUNTRY_REGIONS))
 ```
 
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `npx vitest run tests/normalize/regions.test.ts`
-Expected: PASS, 11 assertions across 7 tests.
+Expected: PASS, 10 tests (7 original + 3 prototype chain hardening).
 
 - [ ] **Step 5: Commit**
 

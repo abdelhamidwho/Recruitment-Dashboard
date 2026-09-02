@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canonicalCountry, regionForCountry } from '@/lib/normalize/regions'
+import { canonicalCountry, regionForCountry, KNOWN_COUNTRIES } from '@/lib/normalize/regions'
 
 describe('canonicalCountry', () => {
   it('expands common abbreviations', () => {
@@ -41,5 +41,30 @@ describe('regionForCountry', () => {
   it('accepts an abbreviation and returns null for the unknown', () => {
     expect(regionForCountry('UAE')).toBe('GCC')
     expect(regionForCountry('Atlantis')).toBeNull()
+  })
+})
+
+describe('prototype chain hardening', () => {
+  it('canonicalCountry returns null for prototype chain properties', () => {
+    expect(canonicalCountry('constructor')).toBeNull()
+    expect(canonicalCountry('__proto__')).toBeNull()
+    expect(canonicalCountry('toString')).toBeNull()
+    expect(canonicalCountry('hasOwnProperty')).toBeNull()
+  })
+
+  it('regionForCountry returns null for prototype chain properties', () => {
+    expect(regionForCountry('constructor')).toBeNull()
+    expect(regionForCountry('__proto__')).toBeNull()
+    expect(regionForCountry('toString')).toBeNull()
+    expect(regionForCountry('hasOwnProperty')).toBeNull()
+  })
+
+  it('KNOWN_COUNTRIES is frozen and cannot be mutated', () => {
+    expect(KNOWN_COUNTRIES).toContain('Egypt')
+    const originalLength = KNOWN_COUNTRIES.length
+    expect(() => {
+      ;(KNOWN_COUNTRIES as any).push('FakeCountry')
+    }).toThrow()
+    expect(KNOWN_COUNTRIES.length).toBe(originalLength)
   })
 })

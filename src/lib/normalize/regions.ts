@@ -9,7 +9,9 @@ export type Region =
   | 'East Asia'
   | 'Oceania'
 
-const ALIASES: Record<string, string> = {
+// Aliases takes precedence over the country table in canonicalCountry lookups
+const ALIASES: Record<string, string> = Object.create(null)
+Object.assign(ALIASES, {
   uae: 'United Arab Emirates',
   'u.a.e.': 'United Arab Emirates',
   emirates: 'United Arab Emirates',
@@ -28,9 +30,10 @@ const ALIASES: Record<string, string> = {
   scotland: 'United Kingdom',
   wales: 'United Kingdom',
   'northern ireland': 'United Kingdom',
-}
+})
 
-const COUNTRY_REGIONS: Record<string, Region> = {
+const COUNTRY_REGIONS: Record<string, Region> = Object.create(null)
+Object.assign(COUNTRY_REGIONS, {
   'United Arab Emirates': 'GCC',
   'Saudi Arabia': 'GCC',
   Qatar: 'GCC',
@@ -98,11 +101,12 @@ const COUNTRY_REGIONS: Record<string, Region> = {
   Thailand: 'East Asia',
   Australia: 'Oceania',
   'New Zealand': 'Oceania',
-}
+})
 
-const BY_LOWERCASE: Record<string, string> = Object.fromEntries(
+const BY_LOWERCASE: Record<string, string> = Object.create(null)
+Object.assign(BY_LOWERCASE, Object.fromEntries(
   Object.keys(COUNTRY_REGIONS).map((name) => [name.toLowerCase(), name]),
-)
+))
 
 export function canonicalCountry(value: string | null | undefined): string | null {
   if (!value) return null
@@ -116,4 +120,4 @@ export function regionForCountry(value: string | null | undefined): Region | nul
   return country ? COUNTRY_REGIONS[country] : null
 }
 
-export const KNOWN_COUNTRIES = Object.keys(COUNTRY_REGIONS)
+export const KNOWN_COUNTRIES: readonly string[] = Object.freeze(Object.keys(COUNTRY_REGIONS))
