@@ -60,4 +60,23 @@ describe('totalYearsOfExperience', () => {
   it('rounds to one decimal place', () => {
     expect(totalYearsOfExperience([{ durationMonths: 7 }], NOW)).toBe(0.6)
   })
+
+  it('deliberately treats an unparseable "to" the same as an ongoing role, measured through now', () => {
+    const expected = totalYearsOfExperience([{ from: '2024-01-01' }], NOW)
+    expect(totalYearsOfExperience([{ from: '2024-01-01', to: 'Present' }], NOW)).toBe(expected)
+    expect(totalYearsOfExperience([{ from: '2024-01-01', to: 'Current' }], NOW)).toBe(expected)
+    expect(totalYearsOfExperience([{ from: '2024-01-01', to: 'garbage' }], NOW)).toBe(expected)
+  })
+
+  it('deliberately falls back to durationMonths for a reversed or zero-length range, never returning a negative number', () => {
+    expect(
+      totalYearsOfExperience(
+        [{ from: '2024-01-01', to: '2020-01-01', durationMonths: 12 }],
+        NOW,
+      ),
+    ).toBe(1)
+    expect(
+      totalYearsOfExperience([{ from: '2024-01-01', to: '2020-01-01' }], NOW),
+    ).toBeNull()
+  })
 })
