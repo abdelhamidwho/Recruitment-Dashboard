@@ -246,6 +246,32 @@ logic where bugs are cheapest to catch:
 
 Each is written before the implementation it covers.
 
+## Known limitations carried by the Phase 1 migration
+
+The `Candidate` to `Person` migration ran successfully against live data, but it
+leaves two facts about *historical* rows that later phases must not misread.
+Neither affects rows created from Phase 1 onward.
+
+- **`SearchRunPerson.wasKnownBefore` is `0` on every migrated row.** The old
+  schema recorded nothing from which per-run first-sight could be reconstructed,
+  so every pre-migration appearance is stamped "not seen before" — including
+  genuine repeats. Phase 5's "seen in N earlier searches" must therefore derive
+  repeat status by counting a person's appearances across runs rather than
+  trusting this column for pre-migration data.
+- **A migrated `score` and its `scoreBreakdown` can come from different source
+  rows.** Where one search run contained the same profile more than once, the
+  migration took `MAX(score)` and `MIN(scoreBreakdown)` independently, so the two
+  can disagree. No live row was affected, because no run contained a duplicated
+  profile at migration time. Phase 3's "why this score" panel should recompute
+  the breakdown rather than render a migrated one, which it does anyway since
+  Phase 3 rewrites scoring.
+
+A third point, for whoever writes the next migration by hand: SQLite cannot alter
+a table in place, so Prisma rewrites changed tables via a temp-table copy. Any
+data-copy statement must be placed after every such rewrite completes, and the
+generated copy list omits newly added `NOT NULL` columns — which would abort the
+migration if the table had rows.
+
 ## Risks
 
 - The migration is the one irreversible step. It runs against a committed

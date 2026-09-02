@@ -1,8 +1,8 @@
-import { mkdtempSync, readFileSync, readdirSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import Database from 'better-sqlite3'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 function migrationSql(match: string): string {
   const root = join(process.cwd(), 'prisma', 'migrations')
@@ -13,9 +13,11 @@ function migrationSql(match: string): string {
 
 describe('candidate to person migration', () => {
   let db: Database.Database
+  let tempDir: string
 
   beforeAll(() => {
-    const file = join(mkdtempSync(join(tmpdir(), 'hrd-mig-')), 'test.db')
+    tempDir = mkdtempSync(join(tmpdir(), 'hrd-mig-'))
+    const file = join(tempDir, 'test.db')
     db = new Database(file)
     db.exec(migrationSql('0_init'))
 
@@ -40,6 +42,12 @@ describe('candidate to person migration', () => {
     candidate.run('c4', 'x2', 'Ahmed Karim', 'https://li/ahmed', 'Dubai, UAE', '[]', '[]', '[]', '{}', 50, '[]', 'run-1', 1000, 1000)
 
     db.exec(migrationSql('phase1_foundation'))
+  })
+
+  afterAll(() => {
+    // Without this each run leaves an hrd-mig-* directory in the OS temp dir.
+    db?.close()
+    rmSync(tempDir, { recursive: true, force: true })
   })
 
   it('creates exactly one Person per distinct profile url', () => {
