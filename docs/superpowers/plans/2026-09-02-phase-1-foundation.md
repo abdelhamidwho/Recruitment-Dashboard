@@ -3632,10 +3632,12 @@ git commit -m "feat: seed the first admin account from environment variables"
 - Create: `src/app/api/auth/logout/route.ts`
 - Create: `src/app/account/password/page.tsx`
 - Create: `src/app/account/password/actions.ts`
+- Create: `src/app/account/password/form.tsx`
 - Create: `src/proxy.ts`
+- Create: `src/app/SessionBar.tsx`
 - Modify: `src/app/layout.tsx`
 
-- [ ] **Step 1: Write the login server function**
+- [x] **Step 1: Write the login server function**
 
 Create `src/app/login/actions.ts`. The failure message is deliberately identical for an unknown email and a wrong password, so the form cannot be used to discover which accounts exist.
 
@@ -3667,7 +3669,7 @@ export async function login(
 }
 ```
 
-- [ ] **Step 2: Write the login page**
+- [x] **Step 2: Write the login page**
 
 Create `src/app/login/page.tsx`:
 
@@ -3725,7 +3727,7 @@ export default function LoginPage() {
 }
 ```
 
-- [ ] **Step 3: Write the login and logout route handlers**
+- [x] **Step 3: Write the login and logout route handlers**
 
 These let a programmatic client (and your own smoke tests with `curl`) authenticate without the form.
 
@@ -3774,7 +3776,7 @@ export async function POST() {
 }
 ```
 
-- [ ] **Step 4: Write the forced password change**
+- [x] **Step 4: Write the forced password change**
 
 Create `src/app/account/password/actions.ts`:
 
@@ -3887,9 +3889,11 @@ export function PasswordForm() {
 }
 ```
 
-- [ ] **Step 5: Write the proxy**
+- [x] **Step 5: Write the proxy**
 
 Create `src/proxy.ts`. It sits beside `src/app`, and it must not import the database — the Next.js 16 docs are explicit that proxy runs separately from render code and may be deployed to a CDN. It therefore only checks that a cookie is present; `requireUser()` does the real verification.
+
+It also forwards the request pathname as an `x-pathname` header. This costs nothing (no database, no shared modules) but lets `SessionBar` — which already renders on every page — know which page it's on, so it can enforce `mustChangePassword` for real (see Step 6: without this, a user could sign in and then navigate straight to `/`, skipping the forced password change entirely).
 
 ```ts
 import { NextResponse } from 'next/server'
@@ -3899,12 +3903,19 @@ import { PUBLIC_PATHS, SESSION_COOKIE } from '@/lib/auth/constants'
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
 
+  // Forwarded so Server Components (SessionBar) can enforce the
+  // mustChangePassword redirect without proxy itself touching the
+  // database — see src/app/SessionBar.tsx.
+  const requestHeaders = new Headers(request.headers)
+  requestHeaders.set('x-pathname', pathname)
+  const withPathname = { request: { headers: requestHeaders } }
+
   if (PUBLIC_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`))) {
-    return NextResponse.next()
+    return NextResponse.next(withPathname)
   }
 
   if (request.cookies.has(SESSION_COOKIE)) {
-    return NextResponse.next()
+    return NextResponse.next(withPathname)
   }
 
   if (pathname.startsWith('/api/')) {
@@ -3921,7 +3932,7 @@ export const config = {
 }
 ```
 
-- [ ] **Step 6: Show who is signed in**
+- [x] **Step 6: Show who is signed in**
 
 Replace the `<body>` contents of `src/app/layout.tsx` so the signed-in user and a sign-out control are always visible. Keep the existing imports, font setup, and metadata untouched — add this above `{children}`:
 
@@ -3930,15 +3941,28 @@ Replace the `<body>` contents of `src/app/layout.tsx` so the signed-in user and 
         {children}
 ```
 
-And create `src/app/SessionBar.tsx`:
+And create `src/app/SessionBar.tsx`. Because it already renders on every page via the root layout, this is also where `mustChangePassword` gets enforced for real — the proxy only knows a session cookie exists, not whether that account still needs a new password, so without this check a user could sign in and navigate straight to `/` and skip the forced change entirely:
 
 ```tsx
+import { headers } from 'next/headers'
+import { redirect } from 'next/navigation'
 import { getUser } from '@/lib/auth/requireUser'
 import { ROLES } from '@/lib/auth/constants'
+
+const PASSWORD_PATH = '/account/password'
 
 export async function SessionBar() {
   const user = await getUser()
   if (!user) return null
+
+  // See src/proxy.ts: it forwards the pathname as a request header because
+  // proxy itself must not query the database and so cannot know
+  // mustChangePassword on its own.
+  const jar = await headers()
+  const pathname = jar.get('x-pathname') ?? ''
+  if (user.mustChangePassword && pathname !== PASSWORD_PATH) {
+    redirect(PASSWORD_PATH)
+  }
 
   return (
     <div className="flex items-center justify-end gap-4 border-b px-6 py-2 text-sm">
@@ -3964,7 +3988,7 @@ Add the import to `src/app/layout.tsx`:
 import { SessionBar } from './SessionBar'
 ```
 
-- [ ] **Step 7: Verify the whole flow by hand**
+- [x] **Step 7: Verify the whole flow by hand**
 
 Start the app, then check that an unauthenticated request is refused and a good one is not.
 
@@ -3976,15 +4000,15 @@ In another terminal:
 
 ```bash
 curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3000/api/taxonomy
-curl -s -c /tmp/hrd-cookies -X POST http://localhost:3000/api/auth/login -H "Content-Type: application/json" -d '{"email":"alborglabs_license@alborglab.com","password":"ChangeMe-Phase1"}'
+curl -s -c /tmp/hrd-cookies -X POST http://localhost:3000/api/auth/login -H "Content-Type: application/json" -d '{"email":"alborglabs_license@alborglab.com","password":"<bootstrap password>"}'
 curl -s -b /tmp/hrd-cookies -o /dev/null -w "%{http_code}\n" http://localhost:3000/api/taxonomy
 ```
 
 Expected: `401`, then a JSON user object with `"mustChangePassword":true`, then `200`.
 
-Then open `http://localhost:3000` in a browser: it must redirect to `/login`. Sign in with the seeded credentials and confirm you land on `/account/password`, not `/`.
+Then open `http://localhost:3000` in a browser: it must redirect to `/login`. Sign in with the seeded credentials and confirm you land on `/account/password`, not `/`. This was verified by hand (curl against a running `npm run dev`): unauthenticated `/api/taxonomy` returned `401`; login returned the expected user JSON with `mustChangePassword:true`; the authenticated `/api/taxonomy` returned `200`; a wrong password and an unknown email both returned `401` with the byte-identical body `{"error":"Email or password is incorrect"}`; a `Session` row appeared on login and was gone after `POST /api/auth/logout`, after which `/api/taxonomy` was `401` again; and — because of the `mustChangePassword` gap noted above — `GET /` with the still-must-change-password session cookie redirected to `/account/password` instead of rendering the dashboard.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/app/login src/app/account src/app/api/auth src/proxy.ts src/app/layout.tsx src/app/SessionBar.tsx

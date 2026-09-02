@@ -1,0 +1,34 @@
+import { NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
+import { PUBLIC_PATHS, SESSION_COOKIE } from '@/lib/auth/constants'
+
+export function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl
+
+  // Forwarded so Server Components (SessionBar) can enforce the
+  // mustChangePassword redirect without proxy itself touching the
+  // database — see src/app/SessionBar.tsx.
+  const requestHeaders = new Headers(request.headers)
+  requestHeaders.set('x-pathname', pathname)
+  const withPathname = { request: { headers: requestHeaders } }
+
+  if (PUBLIC_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`))) {
+    return NextResponse.next(withPathname)
+  }
+
+  if (request.cookies.has(SESSION_COOKIE)) {
+    return NextResponse.next(withPathname)
+  }
+
+  if (pathname.startsWith('/api/')) {
+    return NextResponse.json({ error: 'Not signed in' }, { status: 401 })
+  }
+
+  const login = new URL('/login', request.url)
+  login.searchParams.set('next', pathname)
+  return NextResponse.redirect(login)
+}
+
+export const config = {
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+}
