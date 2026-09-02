@@ -3544,17 +3544,23 @@ Append to `.env`:
 
 ```
 SEED_ADMIN_EMAIL="alborglabs_license@alborglab.com"
-SEED_ADMIN_PASSWORD="ChangeMe-Phase1"
+SEED_ADMIN_PASSWORD="<randomly generated — see below>"
 SEED_ADMIN_NAME="Abdelhamid Ramadan"
 ```
 
-`.env` is git-ignored by the existing `.env*` rule, so this password is not committed. It is a first-login password only: the seeded account is created with `mustChangePassword: true`.
+`.env` is git-ignored by the existing `.env*` rule, so this password is not committed. It is a first-login password only: the seeded account is created with `mustChangePassword: true`. The literal `ChangeMe-Phase1` above is a placeholder for this document only — the actual implementation generated a random bootstrap password (e.g. via `node -e "console.log(require('crypto').randomBytes(12).toString('base64url'))"`) and wrote that into `.env` instead, so no predictable credential ever exists even transiently.
 
 - [ ] **Step 2: Write the seed script**
 
 Create `prisma/seed-admin.ts`:
 
 ```ts
+// `npm run seed:admin` invokes this file directly via `tsx`, which — unlike
+// `next dev`/`next build` — does not load `.env` on its own. `prisma.config.ts`
+// already relies on the same `dotenv/config` side-effect import for the same
+// reason, so this mirrors that existing convention rather than introducing a
+// new one.
+import 'dotenv/config'
 import { hashPassword } from '../src/lib/auth/password'
 import { prisma } from '../src/lib/prisma'
 
