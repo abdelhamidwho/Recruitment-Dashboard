@@ -3012,6 +3012,28 @@ describe('password hashing', () => {
   it('refuses to hash an empty password', async () => {
     await expect(hashPassword('')).rejects.toThrow(/password/i)
   })
+
+  it('returns false for non-numeric parameters in the stored hash', async () => {
+    expect(await verifyPassword('x', 'scrypt$abc$def$ghi$c2FsdA==$a2V5')).toBe(false)
+  })
+
+  it('returns false and does not hang or exhaust memory for absurd scrypt parameters', async () => {
+    const salt = Buffer.from('0123456789abcdef').toString('base64')
+    const key = Buffer.from('0123456789abcdef').toString('base64')
+    const stored = `scrypt$999999999$8$1$${salt}$${key}`
+    expect(await verifyPassword('x', stored)).toBe(false)
+  })
+
+  it('returns false for a non-string stored value', async () => {
+    expect(await verifyPassword('x', null as unknown as string)).toBe(false)
+    expect(await verifyPassword('x', undefined as unknown as string)).toBe(false)
+  })
+
+  it('does not hang on a very long password', async () => {
+    const longPassword = 'a'.repeat(100_000)
+    const hash = await hashPassword(longPassword)
+    expect(await verifyPassword(longPassword, hash)).toBe(true)
+  })
 })
 ```
 
@@ -3022,27 +3044,62 @@ Expected: FAIL — cannot resolve `@/lib/auth/password`.
 
 - [ ] **Step 3: Write the implementation**
 
-Create `src/lib/auth/password.ts`. scrypt comes from `node:crypto`, so there is no new dependency, and it is memory-hard which is what you want for stored passwords.
+Create `src/lib/auth/password.ts`. scrypt comes from `node:crypto`, so there is no new dependency, and it is memory-hard which is what you want for stored passwords. `util.promisify`'s typings resolve `scrypt`'s overloads incorrectly, so the promisified function's type is asserted explicitly. An explicit upper bound on the stored `N`/`r`/`p` parameters keeps a corrupted or malicious stored hash from making `verifyPassword` allocate unreasonable memory or block for an unreasonable time — scrypt's memory usage is roughly `128 * N * r` bytes.
 
 ```ts
-import { randomBytes, scrypt, timingSafeEqual } from 'node:crypto'
+import { randomBytes, scrypt, timingSafeEqual, type ScryptOptions } from 'node:crypto'
 import { promisify } from 'node:util'
 
-const scryptAsync = promisify(scrypt)
+// `scrypt` is overloaded (with and without an options object) in a way
+// `util.promisify`'s typings resolve to the wrong overload, so the options
+// form is asserted explicitly here.
+const scryptAsync = promisify(scrypt) as (
+  password: string | Buffer,
+  salt: string | Buffer,
+  keylen: number,
+  options: ScryptOptions,
+) => Promise<Buffer>
 
-const COST = 16384 // N
-const BLOCK_SIZE = 8 // r
-const PARALLELISM = 1 // p
+const COST = 16384 // N — CPU/memory cost factor
+const BLOCK_SIZE = 8 // r — block size
+const PARALLELISM = 1 // p — parallelization factor
 const KEY_LENGTH = 64
 
+// scrypt's memory usage is roughly 128 * N * r bytes. Cap N so a malicious or
+// corrupted stored value can never make verifyPassword allocate an
+// unreasonable amount of memory or block the event loop for an unreasonable
+// time. The cost this module writes (16384) is comfortably under this.
+const MAX_COST = 1 << 20 // 1,048,576
+const MAX_BLOCK_SIZE = 1024
+const MAX_PARALLELISM = 16
+
+/**
+ * Stored hash format: `scrypt$N$r$p$salt$key`, six `$`-separated fields:
+ *   1. `scrypt`  — the KDF identifier, so the format can be extended later
+ *   2. `N`       — CPU/memory cost factor used to produce this hash
+ *   3. `r`       — block size used to produce this hash
+ *   4. `p`       — parallelization factor used to produce this hash
+ *   5. `salt`    — random per-password salt, base64
+ *   6. `key`     — derived key, base64
+ * Packing the parameters alongside the salt and hash means the cost can be
+ * raised for new passwords later without invalidating hashes already stored
+ * with the old parameters.
+ */
+
+/**
+ * Hashes `password` with scrypt using a fresh random salt.
+ * Returns the packed `scrypt$N$r$p$salt$key` string described above.
+ * Rejects if `password` is empty. Never throws for a valid non-empty input,
+ * though an extremely long password will take proportionally longer.
+ */
 export async function hashPassword(password: string): Promise<string> {
   if (!password) throw new Error('password must not be empty')
   const salt = randomBytes(16)
-  const key = (await scryptAsync(password, salt, KEY_LENGTH, {
+  const key = await scryptAsync(password, salt, KEY_LENGTH, {
     N: COST,
     r: BLOCK_SIZE,
     p: PARALLELISM,
-  })) as Buffer
+  })
   return [
     'scrypt',
     COST,
@@ -3053,8 +3110,16 @@ export async function hashPassword(password: string): Promise<string> {
   ].join('$')
 }
 
+/**
+ * Verifies `password` against a `stored` hash produced by `hashPassword`.
+ * Always resolves to a boolean — never throws or rejects, even when
+ * `stored` is empty, malformed, has non-numeric or implausible parameters,
+ * or isn't a string at all — so a corrupted database row can never crash a
+ * caller such as a login route. Uses `timingSafeEqual` to compare the
+ * derived key against the stored one.
+ */
 export async function verifyPassword(password: string, stored: string): Promise<boolean> {
-  if (!password || !stored) return false
+  if (!password || !stored || typeof stored !== 'string') return false
 
   const parts = stored.split('$')
   if (parts.length !== 6 || parts[0] !== 'scrypt') return false
@@ -3063,18 +3128,22 @@ export async function verifyPassword(password: string, stored: string): Promise<
   const cost = Number(costRaw)
   const blockSize = Number(blockRaw)
   const parallelism = Number(parallelRaw)
-  if (!cost || !blockSize || !parallelism) return false
+  if (!Number.isInteger(cost) || !Number.isInteger(blockSize) || !Number.isInteger(parallelism)) {
+    return false
+  }
+  if (cost <= 0 || blockSize <= 0 || parallelism <= 0) return false
+  if (cost > MAX_COST || blockSize > MAX_BLOCK_SIZE || parallelism > MAX_PARALLELISM) return false
 
   try {
     const salt = Buffer.from(saltRaw, 'base64')
     const expected = Buffer.from(keyRaw, 'base64')
     if (salt.length === 0 || expected.length === 0) return false
 
-    const actual = (await scryptAsync(password, salt, expected.length, {
+    const actual = await scryptAsync(password, salt, expected.length, {
       N: cost,
       r: blockSize,
       p: parallelism,
-    })) as Buffer
+    })
 
     return actual.length === expected.length && timingSafeEqual(actual, expected)
   } catch {
@@ -3086,7 +3155,7 @@ export async function verifyPassword(password: string, stored: string): Promise<
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `npx vitest run tests/auth/password.test.ts`
-Expected: PASS, 6 tests. Each hash takes roughly 100ms, so the file takes a second or two.
+Expected: PASS, 10 tests. Each hash takes roughly 100ms, so the file takes a second or two.
 
 - [ ] **Step 5: Commit**
 
@@ -3146,6 +3215,27 @@ describe('session tokens', () => {
     expect(isExpired(new Date('2026-01-01T00:00:01Z'), now)).toBe(false)
     expect(isExpired(now, now)).toBe(true)
   })
+
+  it('does not throw hashing an empty or non-string token', () => {
+    expect(() => hashSessionToken('')).not.toThrow()
+    expect(hashSessionToken('')).toMatch(/^[0-9a-f]{64}$/)
+    expect(() => hashSessionToken(null as unknown as string)).not.toThrow()
+  })
+
+  it('treats an unparseable expiry as expired', () => {
+    const now = new Date('2026-01-01T00:00:00Z')
+    expect(isExpired(new Date('nonsense'), now)).toBe(true)
+  })
+
+  it('produces 1000 unique url-safe tokens with no padding', () => {
+    const tokens = new Set<string>()
+    for (let i = 0; i < 1000; i++) {
+      const token = generateSessionToken()
+      expect(token).toMatch(/^[A-Za-z0-9_-]+$/)
+      tokens.add(token)
+    }
+    expect(tokens.size).toBe(1000)
+  })
 })
 ```
 
@@ -3176,6 +3266,9 @@ export const STAGES = [
 ] as const
 export type Stage = (typeof STAGES)[number]
 
+// Consumed by src/proxy.ts, which must not touch the database — it only
+// checks cookie presence against these paths to decide whether a request
+// needs a session at all.
 export const PUBLIC_PATHS = ['/login', '/api/auth/login']
 ```
 
@@ -3187,19 +3280,44 @@ Create `src/lib/auth/token.ts`:
 import { createHash, randomBytes } from 'node:crypto'
 import { SESSION_TTL_MS } from './constants'
 
+/**
+ * Generates a fresh random session token: 32 bytes, base64url-encoded (URL
+ * safe, no padding). This is the value that goes in the session cookie. It
+ * is never stored — only its hash (see `hashSessionToken`) is persisted.
+ */
 export function generateSessionToken(): string {
   return randomBytes(32).toString('base64url')
 }
 
+/**
+ * Deterministically hashes a session token to a 64-character lowercase hex
+ * SHA-256 digest. This is what gets stored as `Session.id` in the database,
+ * so a leaked database yields no usable session tokens. Never returns the
+ * token it was given. Does not throw for an empty string or a non-string
+ * input coerced to one.
+ */
 export function hashSessionToken(token: string): string {
-  return createHash('sha256').update(token).digest('hex')
+  return createHash('sha256').update(String(token)).digest('hex')
 }
 
+/**
+ * Returns the instant one session TTL after `now`. `now` defaults to the
+ * current time; tests should pass an explicit value for determinism.
+ */
 export function sessionExpiry(now: Date = new Date()): Date {
   return new Date(now.getTime() + SESSION_TTL_MS)
 }
 
+/**
+ * Reports whether `expiresAt` is at or before `now`. `now` defaults to the
+ * current time; tests should pass an explicit value for determinism. An
+ * unparseable `expiresAt` (an invalid Date, e.g. `new Date('nonsense')`)
+ * is treated as expired — the safe default for a security check, since
+ * `Invalid Date` comparisons are otherwise always `false` and would
+ * silently treat a corrupt value as never expiring.
+ */
 export function isExpired(expiresAt: Date, now: Date = new Date()): boolean {
+  if (Number.isNaN(expiresAt.getTime())) return true
   return expiresAt.getTime() <= now.getTime()
 }
 ```
@@ -3207,7 +3325,7 @@ export function isExpired(expiresAt: Date, now: Date = new Date()): boolean {
 - [ ] **Step 5: Run the test to verify it passes**
 
 Run: `npx vitest run tests/auth/token.test.ts`
-Expected: PASS, 5 tests.
+Expected: PASS, 8 tests.
 
 - [ ] **Step 6: Commit**
 
