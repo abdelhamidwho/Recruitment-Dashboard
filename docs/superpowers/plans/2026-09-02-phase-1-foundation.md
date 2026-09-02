@@ -2640,26 +2640,71 @@ git commit -m "feat: migrate Candidate rows into deduplicated Person records"
 **Files:**
 - Modify: `src/lib/prisma.ts`
 - Modify: `prisma.config.ts`
-- Create: `prisma/backfill-normalize.ts`
+- Create: `prisma/backfill-normalize-lib.ts` (pure/testable normalisation + loop logic)
+- Create: `prisma/backfill-normalize.ts` (thin entry point over the above)
+- Create: `tests/migration/backfill-normalize.test.ts`
 - Modify: `package.json`
 
 - [x] **Step 1: Harden the Prisma client**
 
-`src/lib/prisma.ts` currently creates a new `PrismaClient` on every module evaluation, which under Next.js hot reload leaks connections, and it does not enable WAL — required for the several-HR-users-at-once case in the spec. Replace the whole file:
+`src/lib/prisma.ts` currently creates a new `PrismaClient` on every module evaluation, which under Next.js hot reload leaks connections, and it does not enable WAL — required for the several-HR-users-at-once case in the spec.
+
+A first version fired `PRAGMA journal_mode = WAL` and `PRAGMA busy_timeout = 5000` at the client without awaiting them and swallowed any failure (`.catch(() => {})`). That is a guarantee that fails silently: if WAL cannot be applied (read-only mount, network share, locked file), the app would run on in rollback-journal mode — precisely what this design says cannot serve concurrent HR users — and nobody would find out. Review caught this; the fixed version applies and verifies WAL synchronously before the app can start, and moves `busy_timeout` to where it actually takes effect. It also rejects a `DATABASE_URL` containing a `?`: SQLite file URLs don't support query parameters, and silently stripping one (e.g. someone copying Postgres's `?connection_limit=1` convention) would silently ignore a deliberately-written setting.
+
+Replace the whole file:
 
 ```ts
 import { PrismaClient } from '../../generated/prisma/client'
 import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3'
+import Database from 'better-sqlite3'
 
 const DATABASE_FILE = process.env.DATABASE_URL?.replace(/^file:/, '') ?? './dev.db'
 
+// Postgres-style connection strings support query parameters; SQLite file URLs do not.
+// Silently stripping a deliberately-written setting (e.g. "?connection_limit=1") would be its
+// own bug, so refuse to start rather than open a wrongly-named file or a file with a literal
+// "?" in its name.
+if (DATABASE_FILE.includes('?')) {
+  throw new Error(
+    `DATABASE_URL "${DATABASE_FILE}" contains a "?" — query parameters are not supported for ` +
+      'SQLite connection strings. Remove everything from the "?" onward.',
+  )
+}
+
+// better-sqlite3 is synchronous, so WAL is applied and verified here, synchronously, at module
+// load, using a short-lived direct connection — rather than fired-and-forgotten against the
+// adapter's own async connection where a failure (read-only mount, network share, locked file)
+// would otherwise go unnoticed and the app would silently run on in rollback-journal mode,
+// which cannot serve concurrent HR users. WAL is a persistent property of the database file
+// itself, so setting it once here makes it durable for every later connection, including the
+// adapter's own.
+function ensureWal(file: string): void {
+  const db = new Database(file)
+  try {
+    const mode = db.pragma('journal_mode = WAL', { simple: true }) as string
+    if (mode !== 'wal') {
+      throw new Error(
+        `Failed to enable WAL journal mode on "${file}" (PRAGMA journal_mode reported ` +
+          `"${mode}" instead of "wal"). Refusing to start: rollback-journal mode cannot serve ` +
+          'concurrent HR users.',
+      )
+    }
+  } finally {
+    db.close()
+  }
+}
+
+ensureWal(DATABASE_FILE)
+
 function createClient() {
-  const adapter = new PrismaBetterSqlite3({ url: `file:${DATABASE_FILE}` })
-  const client = new PrismaClient({ adapter })
-  // WAL lets readers and a writer work concurrently, which a shared HR server needs.
-  client.$executeRawUnsafe('PRAGMA journal_mode = WAL').catch(() => {})
-  client.$executeRawUnsafe('PRAGMA busy_timeout = 5000').catch(() => {})
-  return client
+  // PrismaBetterSqlite3's config type is better-sqlite3's own `Options & { url }`, and the
+  // adapter passes it straight through to `new Database(dbPath, config)` (see
+  // node_modules/@prisma/adapter-better-sqlite3/dist/index.js, createBetterSQLite3Client) — so
+  // `timeout` here becomes better-sqlite3's busy timeout on the adapter's own connection. This
+  // is used in place of a fire-and-forgotten `PRAGMA busy_timeout` statement, since busy_timeout
+  // is per-connection and must reach the adapter's own connection to have any effect.
+  const adapter = new PrismaBetterSqlite3({ url: `file:${DATABASE_FILE}`, timeout: 5000 })
+  return new PrismaClient({ adapter })
 }
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient }
@@ -2669,21 +2714,32 @@ export const prisma = globalForPrisma.prisma ?? createClient()
 if (process.env.NODE_ENV !== 'production') {
   globalForPrisma.prisma = prisma
 }
+
+// better-sqlite3 is synchronous and single-connection: within this one Node process, queries
+// are already serialized, so WAL's benefit here is across *processes* (e.g. this app alongside
+// `npm run db:backfill`, or a future second app instance), not within one. Under real
+// contention, a query that waits longer than the busy timeout above surfaces to the caller as
+// a Prisma "database is locked" error rather than hanging forever.
 ```
+
+`busy_timeout` route taken: the `timeout` option on `PrismaBetterSqlite3`'s config (typed as better-sqlite3's own `Options & { url }`) is passed straight through to `new Database(dbPath, config)` inside the adapter, so it reaches better-sqlite3's own busy-timeout mechanism directly — no fire-and-forgotten PRAGMA needed for this one.
 
 - [x] **Step 2: Write the backfill script**
 
-Create `prisma/backfill-normalize.ts`. It re-derives every normalised column from the stored raw JSON, and is safe to run repeatedly. It must also survive a single bad row: if `normalizeProfile`/`JSON.parse` throws for one person, that failure is reported and the rest of the batch still runs, with the process exiting non-zero if any row failed.
+Split across two files so the per-row logic is unit-testable without a real database: `prisma/backfill-normalize-lib.ts` holds the pure per-person computation and the injectable-client loop, and `prisma/backfill-normalize.ts` is a thin entry point that wires the real `prisma` client into it. Both are safe to run repeatedly, and a single bad row (a throw from `computeNormalizationUpdate` or from `client.person.update`) is reported and skipped rather than aborting the whole run, with the process exiting non-zero if any row failed.
+
+One line from the original draft of this script was wrong and review caught it: `totalYearsExperience: years ?? person.totalYearsExperience` fell back to the *already-stored* column — the very value this repair script exists to correct, so a person whose stored figure was wrong would have kept it forever. Fixed to match `normalizeProfile`'s own fallback ordering (`src/lib/normalize/index.ts`): fall back to the scraper's own reported figure, read from `raw.totalYearsExperience`, and only that. The redundant `typeof raw.industry === 'string' ? raw.industry : null` guard on the industry call was also dropped — `normalizeIndustry` already accepts `unknown` and treats non-strings as absent.
+
+`prisma/backfill-normalize-lib.ts`:
 
 ```ts
-import { prisma } from '../src/lib/prisma'
 import { normalizeEducation } from '../src/lib/normalize/education'
 import { totalYearsOfExperience } from '../src/lib/normalize/experience'
 import { normalizeIndustry } from '../src/lib/normalize/industry'
 import { normalizeLanguages } from '../src/lib/normalize/languages'
 import { normalizeLocation } from '../src/lib/normalize/location'
 
-function parse<T>(value: string | null, fallback: T): T {
+export function parseJson<T>(value: string | null, fallback: T): T {
   if (!value) return fallback
   try {
     return JSON.parse(value) as T
@@ -2692,53 +2748,138 @@ function parse<T>(value: string | null, fallback: T): T {
   }
 }
 
-async function main() {
-  const people = await prisma.person.findMany()
+export interface PersonInput {
+  id: string
+  fullName: string
+  raw: string
+  locationRaw: string | null
+  education: string
+  languages: string
+  experience: string
+  currentCompany: string | null
+}
+
+export interface NormalizationUpdate {
+  city: string | null
+  country: string | null
+  region: string | null
+  highestDegree: string | null
+  fieldsOfStudy: string
+  languages: string
+  industry: string | null
+  totalYearsExperience: number | null
+}
+
+/**
+ * Pure per-person computation, kept separate from the database loop (in
+ * prisma/backfill-normalize.ts) so the per-row failure isolation in runBackfill below can be
+ * unit-tested without a real database, and so a throw from here (malformed raw JSON, or a
+ * future change to one of the normalize/* modules) is caught per-person rather than aborting
+ * the whole run.
+ *
+ * NOTE: `raw.industry` here and `candidate.industry` in normalizeProfile
+ * (src/lib/normalize/index.ts) only agree because the live scrape path stores the full,
+ * unmodified raw payload in Person.raw. If that ever changes to a trimmed/projected blob, the
+ * two paths diverge and a person's derived industry would depend on which code path last
+ * touched them.
+ *
+ * totalYearsExperience mirrors normalizeProfile's own fallback ordering: prefer the value
+ * computed from the structured experience entries (which merges overlapping roles), and only
+ * fall back to the scraper's own reported figure (raw.totalYearsExperience) when the
+ * computation yields null. Falling back to the *already-stored* column instead would
+ * perpetuate exactly the stale/wrong values this backfill exists to correct.
+ */
+export function computeNormalizationUpdate(person: PersonInput): NormalizationUpdate {
+  const raw = parseJson<Record<string, unknown>>(person.raw, {})
+  const location = normalizeLocation(person.locationRaw)
+  const education = normalizeEducation(parseJson(person.education, []))
+  const languages = normalizeLanguages(parseJson(person.languages, []))
+  const years = totalYearsOfExperience(parseJson(person.experience, []))
+  const industry = normalizeIndustry(raw.industry, person.currentCompany)
+  const fallbackYears = typeof raw.totalYearsExperience === 'number' ? raw.totalYearsExperience : null
+
+  return {
+    city: location.city,
+    country: location.country,
+    region: location.region,
+    highestDegree: education.highestDegree,
+    fieldsOfStudy: JSON.stringify(education.fieldsOfStudy),
+    languages: JSON.stringify(languages),
+    industry,
+    totalYearsExperience: years ?? fallbackYears,
+  }
+}
+
+export interface BackfillClient {
+  person: {
+    findMany(): Promise<PersonInput[]>
+    update(args: { where: { id: string }; data: NormalizationUpdate }): Promise<unknown>
+  }
+}
+
+export interface BackfillFailure {
+  id: string
+  fullName: string
+  error: string
+}
+
+export interface BackfillResult {
+  examined: number
+  updated: number
+  failed: number
+  failures: BackfillFailure[]
+}
+
+/**
+ * Normalises every person via the injected client.
+ *
+ * Isolation is per-row: if computeNormalizationUpdate or client.person.update throws for one
+ * person, that failure is recorded (with the person's id/name and the error message) and the
+ * loop continues with the remaining rows, rather than one bad row aborting the whole backfill.
+ * Only when the whole table read (findMany) or something outside the loop throws does the run
+ * abort entirely — that is intentional, not this function's job to guard against.
+ *
+ * Note: this loads the whole table with findMany() and updates row by row. That is fine at
+ * HR-sourcing volumes (low hundreds/thousands of people) but is the first thing to change
+ * (e.g. batching, or a single SQL UPDATE where possible) if the table ever gets large.
+ */
+export async function runBackfill(client: BackfillClient): Promise<BackfillResult> {
+  const people = await client.person.findMany()
   let updated = 0
-  let failed = 0
-  const failures: { id: string; fullName: string; error: string }[] = []
+  const failures: BackfillFailure[] = []
 
   for (const person of people) {
     try {
-      const raw = parse<Record<string, unknown>>(person.raw, {})
-      const location = normalizeLocation(person.locationRaw)
-      const education = normalizeEducation(parse(person.education, []))
-      const languages = normalizeLanguages(parse(person.languages, []))
-      const years = totalYearsOfExperience(parse(person.experience, []))
-      const industry = normalizeIndustry(
-        typeof raw.industry === 'string' ? raw.industry : null,
-        person.currentCompany,
-      )
-
-      await prisma.person.update({
-        where: { id: person.id },
-        data: {
-          city: location.city,
-          country: location.country,
-          region: location.region,
-          highestDegree: education.highestDegree,
-          fieldsOfStudy: JSON.stringify(education.fieldsOfStudy),
-          languages: JSON.stringify(languages),
-          industry,
-          totalYearsExperience: years ?? person.totalYearsExperience,
-        },
-      })
+      const data = computeNormalizationUpdate(person)
+      await client.person.update({ where: { id: person.id }, data })
       updated += 1
     } catch (error) {
-      failed += 1
       const message = error instanceof Error ? error.message : String(error)
       failures.push({ id: person.id, fullName: person.fullName, error: message })
       console.error(`failed to normalise person ${person.id} (${person.fullName}): ${message}`)
     }
   }
 
-  console.log(
-    `examined ${people.length} people, updated ${updated}, failed ${failed}`,
-  )
+  return { examined: people.length, updated, failed: failures.length, failures }
+}
+```
 
-  if (failed > 0) {
+`prisma/backfill-normalize.ts`:
+
+```ts
+import { prisma } from '../src/lib/prisma'
+import { runBackfill } from './backfill-normalize-lib'
+
+async function main() {
+  const result = await runBackfill(prisma)
+
+  console.log(`examined ${result.examined} people, updated ${result.updated}, failed ${result.failed}`)
+
+  if (result.failed > 0) {
     console.error(
-      `${failed} people failed normalisation: ${failures.map((f) => `${f.fullName} (${f.id})`).join(', ')}`,
+      `${result.failed} people failed normalisation: ${result.failures
+        .map((f) => `${f.fullName} (${f.id})`)
+        .join(', ')}`,
     )
     process.exitCode = 1
   }
@@ -2751,6 +2892,8 @@ main()
   })
   .finally(() => prisma.$disconnect())
 ```
+
+A regression test, `tests/migration/backfill-normalize.test.ts`, drives `runBackfill` with a fake `BackfillClient` whose `update` throws for one rigged person id, and asserts: the other rows still get updated, the failure is reported with the right id/name/message, and the result's `failed` count is non-zero. Removing the `try`/`catch` in `runBackfill` was confirmed to make this test fail (`Error: boom on bad-1` propagating out of `runBackfill` instead of being caught), then the guard was restored.
 
 - [x] **Step 3: Add the scripts**
 
@@ -2815,7 +2958,7 @@ Running the script a second time reproduces `examined 2 people, updated 2, faile
 - [x] **Step 5: Commit**
 
 ```bash
-git add src/lib/prisma.ts prisma/backfill-normalize.ts prisma.config.ts package.json package-lock.json
+git add src/lib/prisma.ts prisma/backfill-normalize.ts prisma/backfill-normalize-lib.ts prisma.config.ts package.json package-lock.json tests/migration/backfill-normalize.test.ts
 git commit -m "feat: enable WAL, reuse the prisma client, and backfill normalised columns"
 ```
 
