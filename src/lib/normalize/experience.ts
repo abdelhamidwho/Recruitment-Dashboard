@@ -66,7 +66,9 @@ function mergedMonths(intervals: Interval[]): number {
  * - A `durationMonths` that is negative, `NaN`, or not a number is silently
  *   ignored. This function never throws and never logs — a scraper producing
  *   bad values simply does not surface here; that is a separate concern.
- * - Robustness against malformed scraper input: `entries` may itself contain
+ * - Robustness against malformed scraper input: `entries` itself may be `null`, `undefined`,
+ *   or a truthy non-array (a number, a string, or a plain object) — treated the same as "no
+ *   data" rather than crashing on iteration. Within an array, an element may itself contain
  *   `null`, `undefined`, or other non-object elements (raw scraped JSON is
  *   typed as `any`, so this is genuinely reachable) — such elements are
  *   skipped and the remaining entries are still processed, rather than one
@@ -90,7 +92,7 @@ export function totalYearsOfExperience(
   entries: ExperienceEntry[] | null | undefined,
   now: Date = new Date(),
 ): number | null {
-  if (!entries || entries.length === 0) return null
+  if (!Array.isArray(entries) || entries.length === 0) return null
 
   const intervals: Interval[] = []
   let looseMonths = 0

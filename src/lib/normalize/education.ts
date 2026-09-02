@@ -99,7 +99,8 @@ function addCaseInsensitive(value: string, seen: Set<string>, order: string[]): 
  * candidate's raw, untrusted education entries.
  *
  * Never throws, and never drops a candidate for having unparsable data:
- *  - `entries` may be null/undefined/empty, and any element of the array that is not a
+ *  - `entries` may be null/undefined/empty/a truthy non-array (a number, string, or plain
+ *    object — treated the same as "no data"), and any element of the array that is not a
  *    non-null object (e.g. `null`, a primitive, an array) is skipped rather than crashing
  *    the whole call.
  *  - Within a surviving element, a non-string `school`/`degree`/`field` is treated as absent.
@@ -117,7 +118,7 @@ function addCaseInsensitive(value: string, seen: Set<string>, order: string[]): 
 export function normalizeEducation(
   entries: EducationEntry[] | null | undefined,
 ): NormalizedEducation {
-  if (!entries || entries.length === 0) {
+  if (!Array.isArray(entries) || entries.length === 0) {
     return { highestDegree: null, fieldsOfStudy: [], schools: [] }
   }
 

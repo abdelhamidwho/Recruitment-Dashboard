@@ -1468,8 +1468,14 @@ git commit -m "feat: normalise languages with proficiency levels"
 - Create: `src/data/industries.json`
 - Create: `src/lib/normalize/index.ts`
 - Modify: `src/lib/apify.ts`
+- Modify: `src/lib/normalize/location.ts` (hardening: `normalizeLocation` now accepts `unknown` and no longer throws when handed a non-string, e.g. a number)
+- Modify: `src/lib/normalize/experience.ts` (hardening: `totalYearsOfExperience` guards `entries` with `Array.isArray` so a truthy non-array no longer throws on iteration)
+- Modify: `src/lib/normalize/education.ts` (hardening: same `Array.isArray` guard on `entries`)
 - Test: `tests/normalize/industry.test.ts`
 - Test: `tests/lib/apify-mapper.test.ts`
+- Test: `tests/normalize/index.test.ts` (hardening tests for `normalizeProfile`)
+
+As built, this task also closed a class of bug found in every one of the five prior normalisation modules: a guard of the shape `if (!x || x.length === 0)` (or `x || []`) survives `null`/`undefined` but throws when handed a truthy *non-array*, non-string value (a number, a plain object, etc.) — real input from an external scraper with no schema guarantee. `normalizeLocation`, `totalYearsOfExperience`, and `normalizeEducation` all had this defect; `normalizeIndustry` and `mapToCandidate` were written defensively from the start. All are now hardened and covered by tests that exercise them with garbage input types directly (see the "never throws" tests in `tests/normalize/industry.test.ts`, `tests/lib/apify-mapper.test.ts`, and `tests/normalize/index.test.ts`).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1498,6 +1504,27 @@ describe('normalizeIndustry', () => {
   it('returns null when nothing is recognised', () => {
     expect(normalizeIndustry(null, null)).toBeNull()
     expect(normalizeIndustry('Something Unheard Of', 'Nowhere Ltd')).toBeNull()
+  })
+
+  it('never throws and always returns null for garbage input types', () => {
+    const garbage = [null, undefined, 42, {}, [], '']
+    for (const profileIndustry of garbage) {
+      for (const company of garbage) {
+        expect(() => normalizeIndustry(profileIndustry as any, company as any)).not.toThrow()
+        const result = normalizeIndustry(profileIndustry as any, company as any)
+        expect(result === null || typeof result === 'string').toBe(true)
+        expect(result).not.toBeUndefined()
+      }
+    }
+  })
+
+  it('does not leak values off Object.prototype for dangerous keys', () => {
+    const dangerous = ['constructor', '__proto__', 'toString', 'hasOwnProperty']
+    for (const key of dangerous) {
+      expect(normalizeIndustry(key, null)).toBeNull()
+      expect(normalizeIndustry(null, key)).toBeNull()
+      expect(() => normalizeIndustry(key, key)).not.toThrow()
+    }
   })
 })
 ```
@@ -1549,6 +1576,97 @@ describe('mapToCandidate', () => {
     expect(candidate.fullName).toBe('Layla Nasser')
     expect(candidate.currentTitle).toBe('Platform Engineer')
     expect(candidate.skills).toEqual(['Kubernetes', 'Terraform'])
+  })
+
+  it('never throws on an empty object', () => {
+    expect(() => mapToCandidate({})).not.toThrow()
+    const candidate = mapToCandidate({})
+    expect(candidate.skills).toEqual([])
+    expect(candidate.experience).toEqual([])
+    expect(candidate.education).toEqual([])
+    expect(candidate.certifications).toEqual([])
+  })
+
+  it('never throws when array-shaped fields are null, a number, a string, or an object instead of an array', () => {
+    const badValues = [null, 42, 'oops', { not: 'an array' }]
+    for (const bad of badValues) {
+      const rawItem = {
+        ...RAW,
+        skills: bad,
+        experience: bad,
+        education: bad,
+        languages: bad,
+        certifications: bad,
+      }
+      expect(() => mapToCandidate(rawItem)).not.toThrow()
+      const candidate = mapToCandidate(rawItem)
+      expect(candidate.skills).toEqual([])
+      expect(candidate.experience).toEqual([])
+      expect(candidate.education).toEqual([])
+      expect(candidate.certifications).toEqual([])
+    }
+  })
+
+  it('does not emit undefined entries for skills or certifications objects missing a name', () => {
+    const rawItem = {
+      ...RAW,
+      skills: ['Go', { name: 'Rust' }, {}],
+      certifications: ['CKA', {}, { name: 'PMP' }],
+    }
+    const candidate = mapToCandidate(rawItem)
+    expect(candidate.skills).toEqual(['Go', 'Rust'])
+    expect(candidate.certifications).toEqual(['CKA', 'PMP'])
+  })
+})
+```
+
+Also create `tests/normalize/index.test.ts`, exercising `normalizeProfile`'s never-throws guarantee and its experience-preference rule (candidate objects with missing/null/wrong-typed `location`/`education`/`experience`/`languages`/`industry`/`currentCompany`, and an entirely empty object cast to `Candidate`):
+
+```ts
+import { describe, expect, it } from 'vitest'
+import { normalizeProfile } from '@/lib/normalize'
+import type { Candidate } from '@/lib/apify'
+
+describe('normalizeProfile', () => {
+  it('never throws for missing, null, or wrong-typed fields', () => {
+    const badValues: unknown[] = [undefined, null, 42, 'oops', {}, []]
+    const fields = ['location', 'education', 'experience', 'languages', 'industry', 'currentCompany']
+
+    for (const field of fields) {
+      for (const bad of badValues) {
+        const candidate = { [field]: bad } as unknown as Candidate
+        expect(() => normalizeProfile(candidate)).not.toThrow()
+      }
+    }
+
+    for (const bad of badValues) {
+      const candidate = Object.fromEntries(fields.map((f) => [f, bad])) as unknown as Candidate
+      expect(() => normalizeProfile(candidate)).not.toThrow()
+    }
+  })
+
+  it('never throws for an entirely empty object cast to Candidate', () => {
+    expect(() => normalizeProfile({} as Candidate)).not.toThrow()
+    const result = normalizeProfile({} as Candidate)
+    expect(result.industry).toBeNull()
+    expect(result.totalYearsExperience).toBeNull()
+  })
+
+  it('prefers computed experience over the scraper-reported totalYearsExperience', () => {
+    const now = new Date('2024-01-01T00:00:00Z')
+    const candidate = {
+      experience: [{ title: 'Eng', company: 'Acme', from: '2020-01-01', to: '2022-01-01' }],
+      totalYearsExperience: 99,
+    } as unknown as Candidate
+    expect(normalizeProfile(candidate, now).totalYearsExperience).toBe(2)
+  })
+
+  it('falls back to the scraper value only when the computation yields null', () => {
+    const candidate = {
+      experience: [],
+      totalYearsExperience: 5,
+    } as unknown as Candidate
+    expect(normalizeProfile(candidate).totalYearsExperience).toBe(5)
   })
 })
 ```
@@ -1631,29 +1749,62 @@ Create `src/data/industries.json`:
 
 - [ ] **Step 4: Write the industry implementation**
 
-Create `src/lib/normalize/industry.ts`:
+Create `src/lib/normalize/industry.ts`. Parameters are typed `unknown` (not `string | null | undefined`) and lookups go through `Object.create(null)` tables — following the convention in `src/lib/normalize/regions.ts` — so a scraper-controlled key like `'constructor'` or `'__proto__'` cannot resolve to an inherited value off `Object.prototype`:
 
 ```ts
 import industries from '@/data/industries.json'
 
-const ALIASES = industries.aliases as Record<string, string>
-const COMPANIES = industries.companies as Record<string, string>
+// Copied into Object.create(null) tables (rather than used as plain JSON objects) so that
+// bracket lookups with an attacker/scraper-controlled key such as "constructor" or
+// "__proto__" cannot resolve to an inherited value off Object.prototype. See
+// src/lib/normalize/regions.ts for the same convention.
+const ALIASES: Record<string, string> = Object.create(null)
+Object.assign(ALIASES, industries.aliases)
+
+const COMPANIES: Record<string, string> = Object.create(null)
+Object.assign(COMPANIES, industries.companies)
 
 const CANONICAL = new Set(Object.values(ALIASES))
 
+/**
+ * Canonicalises a candidate's industry into one of the fixed set of names in `INDUSTRIES`,
+ * preferring the profile's own stated industry and falling back to a guess from the
+ * candidate's current company only when the profile industry is missing or unrecognised.
+ *
+ * Contract:
+ * - `profileIndustry` is looked up (case-insensitively, trimmed) against a hand-curated
+ *   alias table; if it doesn't match an alias but is already one of the canonical names
+ *   verbatim, that canonical name is returned as-is.
+ * - Only when `profileIndustry` yields nothing does `company` get consulted, against a
+ *   small table covering the mock/fixture companies only.
+ * - Never throws and never returns `undefined`: any input — `null`, `undefined`, a number,
+ *   an object, an array, or an empty string, for either argument — is treated as "no data"
+ *   and falls through to the next source or to a `null` return. Lookups use own-property
+ *   tables (see ALIASES/COMPANIES above) so a key like `'constructor'` or `'__proto__'`
+ *   cannot leak an inherited value off `Object.prototype`.
+ * - Returns `null` when neither source resolves to a known industry.
+ */
 export function normalizeIndustry(
-  profileIndustry: string | null | undefined,
-  company: string | null | undefined,
+  profileIndustry: unknown,
+  company: unknown,
 ): string | null {
-  const raw = profileIndustry?.trim().toLowerCase()
-  if (raw) {
-    if (ALIASES[raw]) return ALIASES[raw]
-    const titled = profileIndustry!.trim()
-    if (CANONICAL.has(titled)) return titled
+  if (typeof profileIndustry === 'string') {
+    const raw = profileIndustry.trim().toLowerCase()
+    if (raw) {
+      const aliased = ALIASES[raw]
+      if (aliased) return aliased
+      const titled = profileIndustry.trim()
+      if (CANONICAL.has(titled)) return titled
+    }
   }
 
-  const companyKey = company?.trim().toLowerCase()
-  if (companyKey && COMPANIES[companyKey]) return COMPANIES[companyKey]
+  if (typeof company === 'string') {
+    const companyKey = company.trim().toLowerCase()
+    if (companyKey) {
+      const matched = COMPANIES[companyKey]
+      if (matched) return matched
+    }
+  }
 
   return null
 }
@@ -1691,9 +1842,18 @@ export type Candidate = {
 }
 ```
 
-Second, export `mapToCandidate` and stop it discarding data. Replace the whole function:
+Second, export `mapToCandidate` and stop it discarding data. Replace the whole function. Note the `asArray` guard: `(rawItem.education || []).map(...)`-style guards survive `null`/`undefined` but throw on a truthy non-array (a number, a string, or a plain object) — genuinely reachable, since this data comes straight off an external scraper with no schema guarantee — so every array-shaped field is guarded with `Array.isArray` instead. The `skills`/`certifications` mapping also filters out `undefined` (an object entry without a `name` must not leak into the output array):
 
 ```ts
+// `rawItem.<field>` comes straight off an external scraper with no schema guarantee: any of
+// these array-shaped fields may be missing, null, or a truthy non-array (a number, a string,
+// or a plain object) rather than an array. `(x || []).map(...)` survives null/undefined but
+// throws on a truthy non-array, so every array-shaped field is guarded with Array.isArray
+// instead.
+function asArray(value: unknown): any[] {
+  return Array.isArray(value) ? value : [];
+}
+
 export function mapToCandidate(rawItem: any): Candidate {
   return {
     externalId: rawItem.id || rawItem.profileUrl,
@@ -1706,33 +1866,37 @@ export function mapToCandidate(rawItem: any): Candidate {
     avatarUrl: rawItem.avatarUrl || rawItem.profilePicture,
     summary: rawItem.summary || rawItem.about,
     industry: rawItem.industry,
-    skills: rawItem.skills?.map((s: any) => (typeof s === "string" ? s : s.name)) || [],
-    experience: (rawItem.experience || []).map((exp: any) => ({
+    skills: asArray(rawItem.skills)
+      .map((s: any) => (typeof s === "string" ? s : s?.name))
+      .filter((s: unknown): s is string => typeof s === "string"),
+    experience: asArray(rawItem.experience).map((exp: any) => ({
       title: exp.title,
       company: exp.company,
       durationMonths: exp.durationMonths,
       from: exp.startDate || exp.from,
       to: exp.endDate || exp.to,
     })),
-    education: (rawItem.education || []).map((ed: any) => ({
+    education: asArray(rawItem.education).map((ed: any) => ({
       school: ed.school,
       degree: ed.degreeName || ed.degree,
       field: ed.fieldOfStudy || ed.field,
       year: ed.year,
     })),
     languages: rawItem.languages || [],
-    certifications: (rawItem.certifications || []).map((c: any) =>
-      typeof c === "string" ? c : c.name,
-    ),
+    certifications: asArray(rawItem.certifications)
+      .map((c: any) => (typeof c === "string" ? c : c?.name))
+      .filter((c: unknown): c is string => typeof c === "string"),
     totalYearsExperience: rawItem.totalYearsExperience,
     raw: rawItem,
   };
 }
 ```
 
+Third, the same "throws on truthy non-array" defect was found by execution in three of the five sibling modules built in earlier tasks — `normalizeLocation` (`raw.trim()` called without a `typeof raw === 'string'` guard), `totalYearsOfExperience`, and `normalizeEducation` (both did `if (!entries || entries.length === 0)` then `for...of entries`, which throws when `entries` is a truthy non-array such as a number or plain object). All three are hardened the same way: `normalizeLocation`'s parameter is now typed `unknown` with an explicit `typeof raw !== 'string'` check, and the other two now guard with `Array.isArray(entries)`. This surfaced while testing `normalizeProfile`'s never-throws guarantee (Step 6) against wrong-typed `Candidate` fields.
+
 - [ ] **Step 6: Write the composed normaliser**
 
-Create `src/lib/normalize/index.ts`:
+Create `src/lib/normalize/index.ts`. `candidate` is treated as untrusted throughout — every field it reads may be missing, `null`, or the wrong type, since it may come straight from `mapToCandidate`'s `any`-typed input:
 
 ```ts
 import type { Candidate } from '@/lib/apify'
@@ -1757,14 +1921,36 @@ export interface NormalizedProfile {
   totalYearsExperience: number | null
 }
 
+/**
+ * Composes the five sibling normalisation modules into one profile-shaped result.
+ *
+ * Contract:
+ * - Never throws. `candidate` is treated as untrusted: every field it reads
+ *   (`location`, `education`, `experience`, `languages`, `industry`, `currentCompany`) may be
+ *   missing, `null`, or the wrong type, because it may originate from raw scraper output or
+ *   from `mapToCandidate`'s `any`-typed input. Each sibling module is itself defensive against
+ *   this, so this function does not add its own guards beyond passing the fields straight
+ *   through.
+ * - `totalYearsExperience` prefers the value computed from `candidate.experience` (which
+ *   merges overlapping roles) over the scraper-reported `candidate.totalYearsExperience`,
+ *   and only falls back to the scraper's value when the computation yields `null` (no usable
+ *   experience data at all). This ordering is deliberate: the scraper's field is frequently
+ *   absent, and treating "absent" as `0` is the exact accuracy bug this normalisation layer
+ *   exists to fix.
+ *
+ * @param now - Clock passed through to `totalYearsOfExperience` for ongoing-role
+ *   measurement. Defaults to `new Date()`; callers that need determinism (tests) should pass
+ *   a fixed value.
+ */
 export function normalizeProfile(candidate: Candidate, now: Date = new Date()): NormalizedProfile {
+  candidate = candidate ?? ({} as Candidate)
   return {
-    location: normalizeLocation(candidate.location),
-    education: normalizeEducation(candidate.education),
-    languages: normalizeLanguages(candidate.languages),
-    industry: normalizeIndustry(candidate.industry, candidate.currentCompany),
+    location: normalizeLocation(candidate?.location),
+    education: normalizeEducation(candidate?.education),
+    languages: normalizeLanguages(candidate?.languages),
+    industry: normalizeIndustry(candidate?.industry, candidate?.currentCompany),
     totalYearsExperience:
-      totalYearsOfExperience(candidate.experience, now) ?? candidate.totalYearsExperience ?? null,
+      totalYearsOfExperience(candidate?.experience, now) ?? candidate?.totalYearsExperience ?? null,
   }
 }
 ```
@@ -1772,12 +1958,12 @@ export function normalizeProfile(candidate: Candidate, now: Date = new Date()): 
 - [ ] **Step 7: Run the tests to verify they pass**
 
 Run: `npm test`
-Expected: PASS across all files — 5 buildBooleanQuery, 7 regions, 7 location, 8 experience, 7 education, 6 languages, 4 industry, 5 mapper.
+Expected: PASS across all files — 5 buildBooleanQuery, 10 regions, 12 location, 13 experience, 15 education, 12 languages, 6 industry, 8 mapper, 4 normalizeProfile (`tests/normalize/index.test.ts`) — 85 tests total. (The regions/location/experience/education/languages counts are higher than the 7/7/8/7/6 originally estimated in Tasks 2–6, because those modules' own hardening tests were added as those tasks were actually built; 67 of the 85 were already passing before this task.)
 
 - [ ] **Step 8: Verify the app still compiles**
 
 Run: `npx tsc --noEmit`
-Expected: no errors. The `Candidate.languages` type widened from `string[]` to `RawLanguage[]`; if `src/app/api/search/[runId]/route.ts` complains, leave it — Task 18 rewrites that file. If it blocks you, cast at the call site with `JSON.stringify(c.languages ?? [])`, which is already what that code does.
+Expected: no errors. The `Candidate.languages` type widened from `string[]` to `RawLanguage[]`; if `src/app/api/search/[runId]/route.ts` complains, leave it — Task 18 rewrites that file. If it blocks you, cast at the call site with `JSON.stringify(c.languages ?? [])`, which is already what that code does. (As built, `route.ts` already does exactly that — `JSON.stringify(c.languages || [])` — so no errors were produced anywhere.)
 
 - [ ] **Step 9: Commit**
 
@@ -1785,6 +1971,8 @@ Expected: no errors. The `Candidate.languages` type widened from `string[]` to `
 git add src/lib/normalize src/data/industries.json src/lib/apify.ts tests/normalize tests/lib/apify-mapper.test.ts
 git commit -m "feat: add normalisation layer and stop the mapper discarding profile data"
 ```
+
+(As built, `src/lib/normalize/location.ts`, `src/lib/normalize/experience.ts`, and `src/lib/normalize/education.ts` were also modified — see the hardening note under Step 5 — and `tests/normalize/index.test.ts` was added, so the actual commit was `git add src/lib/normalize src/data/industries.json src/lib/apify.ts tests/normalize tests/lib/apify-mapper.test.ts`, which already covers all of those paths since they live under `src/lib/normalize` and `tests/normalize`.)
 
 ---
 

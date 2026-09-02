@@ -5,6 +5,10 @@ const APIFY_TOKEN = process.env.APIFY_TOKEN;
 const APIFY_ACTOR_ID = process.env.APIFY_ACTOR_ID;
 const APIFY_MOCK = process.env.APIFY_MOCK === "true";
 
+export type RawLanguage =
+  | string
+  | { name?: string; language?: string; proficiency?: string; level?: string };
+
 export type Candidate = {
   externalId: string;
   fullName: string;
@@ -15,10 +19,11 @@ export type Candidate = {
   profileUrl: string;
   avatarUrl?: string;
   summary?: string;
+  industry?: string;
   skills: string[];
   experience: { title: string; company: string; from?: string; to?: string; durationMonths?: number }[];
   education: { school: string; degree?: string; field?: string; year?: string }[];
-  languages?: string[];
+  languages?: RawLanguage[];
   certifications?: string[];
   totalYearsExperience?: number;
   raw: unknown;
@@ -77,30 +82,47 @@ function buildActorInput(filters: Partial<SearchFilters>) {
   };
 }
 
-function mapToCandidate(rawItem: any): Candidate {
+// `rawItem.<field>` comes straight off an external scraper with no schema guarantee: any of
+// these array-shaped fields may be missing, null, or a truthy non-array (a number, a string,
+// or a plain object) rather than an array. `(x || []).map(...)` survives null/undefined but
+// throws on a truthy non-array, so every array-shaped field is guarded with Array.isArray
+// instead.
+function asArray(value: unknown): any[] {
+  return Array.isArray(value) ? value : [];
+}
+
+export function mapToCandidate(rawItem: any): Candidate {
   return {
     externalId: rawItem.id || rawItem.profileUrl,
     fullName: rawItem.fullName || [rawItem.firstName, rawItem.lastName].filter(Boolean).join(" "),
     headline: rawItem.headline,
-    currentTitle: rawItem.currentJobTitle,
+    currentTitle: rawItem.currentJobTitle || rawItem.currentTitle,
     currentCompany: rawItem.currentCompany,
     location: rawItem.location,
     profileUrl: rawItem.profileUrl || rawItem.url,
     avatarUrl: rawItem.avatarUrl || rawItem.profilePicture,
     summary: rawItem.summary || rawItem.about,
-    skills: rawItem.skills?.map((s: any) => typeof s === "string" ? s : s.name) || [],
-    experience: (rawItem.experience || []).map((exp: any) => ({
+    industry: rawItem.industry,
+    skills: asArray(rawItem.skills)
+      .map((s: any) => (typeof s === "string" ? s : s?.name))
+      .filter((s: unknown): s is string => typeof s === "string"),
+    experience: asArray(rawItem.experience).map((exp: any) => ({
       title: exp.title,
       company: exp.company,
       durationMonths: exp.durationMonths,
-      from: exp.startDate,
-      to: exp.endDate,
+      from: exp.startDate || exp.from,
+      to: exp.endDate || exp.to,
     })),
-    education: (rawItem.education || []).map((ed: any) => ({
+    education: asArray(rawItem.education).map((ed: any) => ({
       school: ed.school,
-      degree: ed.degreeName,
+      degree: ed.degreeName || ed.degree,
+      field: ed.fieldOfStudy || ed.field,
+      year: ed.year,
     })),
-    languages: rawItem.languages?.map((l: any) => typeof l === "string" ? l : l.name) || [],
+    languages: rawItem.languages || [],
+    certifications: asArray(rawItem.certifications)
+      .map((c: any) => (typeof c === "string" ? c : c?.name))
+      .filter((c: unknown): c is string => typeof c === "string"),
     totalYearsExperience: rawItem.totalYearsExperience,
     raw: rawItem,
   };

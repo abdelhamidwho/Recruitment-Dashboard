@@ -41,9 +41,12 @@ const US_STATES = new Set([
  *   country/region resolution.
  * - Unparseable input yields all nulls with raw preserved, so no candidate is ever lost
  *   to a parsing failure.
+ * - Never throws: a `raw` that is not a string (e.g. a number, array, or object — this data
+ *   comes straight off an external scraper with no schema guarantee) is treated the same as
+ *   missing input.
  */
-export function normalizeLocation(raw: string | null | undefined): NormalizedLocation {
-  if (!raw || !raw.trim()) {
+export function normalizeLocation(raw: unknown): NormalizedLocation {
+  if (typeof raw !== 'string' || !raw.trim()) {
     return { raw: null, city: null, country: null, region: null }
   }
 
