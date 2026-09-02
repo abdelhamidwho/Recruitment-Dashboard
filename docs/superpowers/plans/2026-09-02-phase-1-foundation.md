@@ -3034,6 +3034,18 @@ describe('password hashing', () => {
     const hash = await hashPassword(longPassword)
     expect(await verifyPassword(longPassword, hash)).toBe(true)
   })
+
+  it('rejects a stored hash whose key length does not match what hashPassword produces', async () => {
+    const hash = await hashPassword('whatever')
+    const parts = hash.split('$')
+    // Replace the key field with a 1-byte key, keeping everything else —
+    // including the real cost/block/parallelism parameters — valid, so this
+    // exercises the key-length check specifically rather than any of the
+    // earlier malformed-input checks.
+    const tamperedKey = Buffer.from([0x42]).toString('base64')
+    const tampered = [...parts.slice(0, 5), tamperedKey].join('$')
+    expect(await verifyPassword('whatever', tampered)).toBe(false)
+  })
 })
 ```
 
@@ -3044,7 +3056,7 @@ Expected: FAIL — cannot resolve `@/lib/auth/password`.
 
 - [ ] **Step 3: Write the implementation**
 
-Create `src/lib/auth/password.ts`. scrypt comes from `node:crypto`, so there is no new dependency, and it is memory-hard which is what you want for stored passwords. `util.promisify`'s typings resolve `scrypt`'s overloads incorrectly, so the promisified function's type is asserted explicitly. An explicit upper bound on the stored `N`/`r`/`p` parameters keeps a corrupted or malicious stored hash from making `verifyPassword` allocate unreasonable memory or block for an unreasonable time — scrypt's memory usage is roughly `128 * N * r` bytes.
+Create `src/lib/auth/password.ts`. scrypt comes from `node:crypto`, so there is no new dependency, and it is memory-hard which is what you want for stored passwords. `util.promisify`'s typings resolve `scrypt`'s overloads incorrectly, so the promisified function's type is asserted explicitly. An explicit upper bound on the stored `N`/`r`/`p` parameters is belt-and-braces on top of Node's own `maxmem` default, which is the first line of defence against an absurd stored cost. `verifyPassword` also rejects a stored key whose decoded length doesn't match what `hashPassword` produces, rather than deriving against whatever length a tampered row happens to carry.
 
 ```ts
 import { randomBytes, scrypt, timingSafeEqual, type ScryptOptions } from 'node:crypto'
@@ -3065,10 +3077,23 @@ const BLOCK_SIZE = 8 // r — block size
 const PARALLELISM = 1 // p — parallelization factor
 const KEY_LENGTH = 64
 
-// scrypt's memory usage is roughly 128 * N * r bytes. Cap N so a malicious or
-// corrupted stored value can never make verifyPassword allocate an
-// unreasonable amount of memory or block the event loop for an unreasonable
-// time. The cost this module writes (16384) is comfortably under this.
+// Node's own `scrypt` already refuses to run when the requested parameters
+// would exceed its default 32MB `maxmem` (memory usage is roughly
+// 128 * N * r bytes), so in practice that check is the first line of
+// defence against an absurd stored N/r/p and is what actually stops
+// something like N=999999999 before it ever costs real time or memory.
+// These bounds are belt-and-braces on top of that: they guard against a
+// future call site passing a larger explicit `maxmem`, or a Node/OpenSSL
+// change to the default, silently reopening the door. They are not
+// currently reachable in this module's own tests (Node's default `maxmem`
+// rejects first), which is expected and fine.
+//
+// INVARIANT: MAX_COST must never be set below any COST value that has ever
+// been used to produce a live stored hash. Lowering it below a value still
+// in use would make verifyPassword reject that hash as "implausible" and
+// lock out every user whose password was hashed with it — a silent,
+// total-outage footgun. Only raise COST going forward; if MAX_COST is ever
+// tightened, confirm no stored hash uses a cost above the new ceiling first.
 const MAX_COST = 1 << 20 // 1,048,576
 const MAX_BLOCK_SIZE = 1024
 const MAX_PARALLELISM = 16
@@ -3138,6 +3163,11 @@ export async function verifyPassword(password: string, stored: string): Promise<
     const salt = Buffer.from(saltRaw, 'base64')
     const expected = Buffer.from(keyRaw, 'base64')
     if (salt.length === 0 || expected.length === 0) return false
+    // A stored key of any other length was never produced by hashPassword —
+    // reject it outright rather than deriving against whatever length a
+    // tampered row happens to carry (e.g. a one-byte key would otherwise be
+    // compared against a one-byte derived key and could verify).
+    if (expected.length !== KEY_LENGTH) return false
 
     const actual = await scryptAsync(password, salt, expected.length, {
       N: cost,
@@ -3155,7 +3185,7 @@ export async function verifyPassword(password: string, stored: string): Promise<
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `npx vitest run tests/auth/password.test.ts`
-Expected: PASS, 10 tests. Each hash takes roughly 100ms, so the file takes a second or two.
+Expected: PASS, 11 tests. Each hash takes roughly 100ms, so the file takes a second or two.
 
 - [ ] **Step 5: Commit**
 
@@ -3172,6 +3202,7 @@ git commit -m "feat: add scrypt password hashing"
 - Create: `src/lib/auth/constants.ts`
 - Create: `src/lib/auth/token.ts`
 - Test: `tests/auth/token.test.ts`
+- Test: `tests/auth/constants.test.ts`
 
 The cookie carries a random token; the database stores only its SHA-256. A leaked database therefore does not hand an attacker usable sessions.
 
@@ -3239,6 +3270,42 @@ describe('session tokens', () => {
 })
 ```
 
+Also create `tests/auth/constants.test.ts`, asserting `ROLES`, `STAGES` and `PUBLIC_PATHS` are frozen — matching the convention already used for `INDUSTRIES` in `src/lib/normalize/industry.ts`, `LANGUAGE_LEVELS` in `languages.ts` and `KNOWN_COUNTRIES` in `regions.ts` — so a UI or proxy module that imports one of these lists can never mutate it in place for every other importer for the life of the process. This matters most for `PUBLIC_PATHS`, which gates the authentication check in `src/proxy.ts`.
+
+```ts
+import { describe, expect, it } from 'vitest'
+import { PUBLIC_PATHS, ROLES, STAGES } from '@/lib/auth/constants'
+
+describe('auth constants', () => {
+  it('freezes ROLES so it cannot be mutated by an importer', () => {
+    expect(Object.isFrozen(ROLES)).toBe(true)
+    expect(() => {
+      // @ts-expect-error intentionally violating the readonly type at runtime
+      ROLES.ADMIN = 'HACKED'
+    }).toThrow()
+    expect(ROLES.ADMIN).toBe('ADMIN')
+  })
+
+  it('freezes STAGES so it cannot be mutated by an importer', () => {
+    expect(Object.isFrozen(STAGES)).toBe(true)
+    expect(() => {
+      // @ts-expect-error intentionally violating the readonly type at runtime
+      STAGES.push('Extra')
+    }).toThrow()
+    expect(STAGES).toHaveLength(7)
+  })
+
+  it('freezes PUBLIC_PATHS so it cannot be mutated by an importer', () => {
+    expect(Object.isFrozen(PUBLIC_PATHS)).toBe(true)
+    expect(() => {
+      // @ts-expect-error intentionally violating the readonly type at runtime
+      PUBLIC_PATHS.push('/anything')
+    }).toThrow()
+    expect(PUBLIC_PATHS).toEqual(['/login', '/api/auth/login'])
+  })
+})
+```
+
 - [ ] **Step 2: Run it to verify it fails**
 
 Run: `npx vitest run tests/auth/token.test.ts`
@@ -3246,16 +3313,16 @@ Expected: FAIL — cannot resolve `@/lib/auth/token`.
 
 - [ ] **Step 3: Write the constants**
 
-Create `src/lib/auth/constants.ts`:
+Create `src/lib/auth/constants.ts`. Each exported list is wrapped in `Object.freeze` so it can't be mutated in place by whatever imports it.
 
 ```ts
 export const SESSION_COOKIE = 'hrd_session'
 export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
-export const ROLES = { ADMIN: 'ADMIN', RECRUITER: 'RECRUITER' } as const
+export const ROLES = Object.freeze({ ADMIN: 'ADMIN', RECRUITER: 'RECRUITER' } as const)
 export type Role = (typeof ROLES)[keyof typeof ROLES]
 
-export const STAGES = [
+export const STAGES = Object.freeze([
   'Sourced',
   'Contacted',
   'Screening',
@@ -3263,13 +3330,17 @@ export const STAGES = [
   'Offer',
   'Hired',
   'Rejected',
-] as const
+] as const)
 export type Stage = (typeof STAGES)[number]
 
 // Consumed by src/proxy.ts, which must not touch the database — it only
 // checks cookie presence against these paths to decide whether a request
-// needs a session at all.
-export const PUBLIC_PATHS = ['/login', '/api/auth/login']
+// needs a session at all. Frozen because a mutation here (a `.push`, a
+// `.sort`, a reassigned index) would corrupt the list for every other
+// importer for the life of the process — and for PUBLIC_PATHS specifically,
+// that corruption could widen what proxy.ts treats as publicly reachable
+// without authentication.
+export const PUBLIC_PATHS: readonly string[] = Object.freeze(['/login', '/api/auth/login'])
 ```
 
 - [ ] **Step 4: Write the token module**
@@ -3322,15 +3393,15 @@ export function isExpired(expiresAt: Date, now: Date = new Date()): boolean {
 }
 ```
 
-- [ ] **Step 5: Run the test to verify it passes**
+- [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `npx vitest run tests/auth/token.test.ts`
-Expected: PASS, 8 tests.
+Run: `npx vitest run tests/auth/token.test.ts tests/auth/constants.test.ts`
+Expected: PASS, 8 tests in `token.test.ts` and 3 in `constants.test.ts`.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/lib/auth/constants.ts src/lib/auth/token.ts tests/auth/token.test.ts
+git add src/lib/auth/constants.ts src/lib/auth/token.ts tests/auth/token.test.ts tests/auth/constants.test.ts
 git commit -m "feat: add session token generation and expiry helpers"
 ```
 

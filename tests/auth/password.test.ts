@@ -57,4 +57,16 @@ describe('password hashing', () => {
     const hash = await hashPassword(longPassword)
     expect(await verifyPassword(longPassword, hash)).toBe(true)
   })
+
+  it('rejects a stored hash whose key length does not match what hashPassword produces', async () => {
+    const hash = await hashPassword('whatever')
+    const parts = hash.split('$')
+    // Replace the key field with a 1-byte key, keeping everything else —
+    // including the real cost/block/parallelism parameters — valid, so this
+    // exercises the key-length check specifically rather than any of the
+    // earlier malformed-input checks.
+    const tamperedKey = Buffer.from([0x42]).toString('base64')
+    const tampered = [...parts.slice(0, 5), tamperedKey].join('$')
+    expect(await verifyPassword('whatever', tampered)).toBe(false)
+  })
 })

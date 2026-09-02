@@ -1,10 +1,10 @@
 export const SESSION_COOKIE = 'hrd_session'
 export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
-export const ROLES = { ADMIN: 'ADMIN', RECRUITER: 'RECRUITER' } as const
+export const ROLES = Object.freeze({ ADMIN: 'ADMIN', RECRUITER: 'RECRUITER' } as const)
 export type Role = (typeof ROLES)[keyof typeof ROLES]
 
-export const STAGES = [
+export const STAGES = Object.freeze([
   'Sourced',
   'Contacted',
   'Screening',
@@ -12,10 +12,14 @@ export const STAGES = [
   'Offer',
   'Hired',
   'Rejected',
-] as const
+] as const)
 export type Stage = (typeof STAGES)[number]
 
 // Consumed by src/proxy.ts, which must not touch the database — it only
 // checks cookie presence against these paths to decide whether a request
-// needs a session at all.
-export const PUBLIC_PATHS = ['/login', '/api/auth/login']
+// needs a session at all. Frozen because a mutation here (a `.push`, a
+// `.sort`, a reassigned index) would corrupt the list for every other
+// importer for the life of the process — and for PUBLIC_PATHS specifically,
+// that corruption could widen what proxy.ts treats as publicly reachable
+// without authentication.
+export const PUBLIC_PATHS: readonly string[] = Object.freeze(['/login', '/api/auth/login'])

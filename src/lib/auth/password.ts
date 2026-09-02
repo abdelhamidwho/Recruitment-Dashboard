@@ -16,10 +16,23 @@ const BLOCK_SIZE = 8 // r — block size
 const PARALLELISM = 1 // p — parallelization factor
 const KEY_LENGTH = 64
 
-// scrypt's memory usage is roughly 128 * N * r bytes. Cap N so a malicious or
-// corrupted stored value can never make verifyPassword allocate an
-// unreasonable amount of memory or block the event loop for an unreasonable
-// time. The cost this module writes (16384) is comfortably under this.
+// Node's own `scrypt` already refuses to run when the requested parameters
+// would exceed its default 32MB `maxmem` (memory usage is roughly
+// 128 * N * r bytes), so in practice that check is the first line of
+// defence against an absurd stored N/r/p and is what actually stops
+// something like N=999999999 before it ever costs real time or memory.
+// These bounds are belt-and-braces on top of that: they guard against a
+// future call site passing a larger explicit `maxmem`, or a Node/OpenSSL
+// change to the default, silently reopening the door. They are not
+// currently reachable in this module's own tests (Node's default `maxmem`
+// rejects first), which is expected and fine.
+//
+// INVARIANT: MAX_COST must never be set below any COST value that has ever
+// been used to produce a live stored hash. Lowering it below a value still
+// in use would make verifyPassword reject that hash as "implausible" and
+// lock out every user whose password was hashed with it — a silent,
+// total-outage footgun. Only raise COST going forward; if MAX_COST is ever
+// tightened, confirm no stored hash uses a cost above the new ceiling first.
 const MAX_COST = 1 << 20 // 1,048,576
 const MAX_BLOCK_SIZE = 1024
 const MAX_PARALLELISM = 16
@@ -89,6 +102,11 @@ export async function verifyPassword(password: string, stored: string): Promise<
     const salt = Buffer.from(saltRaw, 'base64')
     const expected = Buffer.from(keyRaw, 'base64')
     if (salt.length === 0 || expected.length === 0) return false
+    // A stored key of any other length was never produced by hashPassword —
+    // reject it outright rather than deriving against whatever length a
+    // tampered row happens to carry (e.g. a one-byte key would otherwise be
+    // compared against a one-byte derived key and could verify).
+    if (expected.length !== KEY_LENGTH) return false
 
     const actual = await scryptAsync(password, salt, expected.length, {
       N: cost,
