@@ -1483,7 +1483,7 @@ Create `tests/normalize/industry.test.ts`:
 
 ```ts
 import { describe, expect, it } from 'vitest'
-import { normalizeIndustry } from '@/lib/normalize/industry'
+import { normalizeIndustry, INDUSTRIES } from '@/lib/normalize/industry'
 
 describe('normalizeIndustry', () => {
   it('canonicalises a profile industry', () => {
@@ -1525,6 +1525,17 @@ describe('normalizeIndustry', () => {
       expect(normalizeIndustry(null, key)).toBeNull()
       expect(() => normalizeIndustry(key, key)).not.toThrow()
     }
+  })
+})
+
+describe('INDUSTRIES', () => {
+  it('is frozen so a shared importer (e.g. a Phase 2 dropdown) cannot mutate it in place', () => {
+    expect(Object.isFrozen(INDUSTRIES)).toBe(true)
+    expect(() => (INDUSTRIES as string[]).push('Something New')).toThrow()
+    expect(() => (INDUSTRIES as string[]).sort((a, b) => b.localeCompare(a))).toThrow()
+    expect(() => {
+      ;(INDUSTRIES as string[])[0] = 'Overwritten'
+    }).toThrow()
   })
 })
 ```
@@ -1603,7 +1614,15 @@ describe('mapToCandidate', () => {
       expect(candidate.skills).toEqual([])
       expect(candidate.experience).toEqual([])
       expect(candidate.education).toEqual([])
+      expect(candidate.languages).toEqual([])
       expect(candidate.certifications).toEqual([])
+    }
+  })
+
+  it('coerces a non-array languages into an empty array, same as its four siblings', () => {
+    const badValues = [null, 42, 'oops', { not: 'an array' }]
+    for (const bad of badValues) {
+      expect(mapToCandidate({ ...RAW, languages: bad }).languages).toEqual([])
     }
   })
 
@@ -1765,7 +1784,7 @@ Create `src/data/industries.json`:
 
 - [ ] **Step 4: Write the industry implementation**
 
-Create `src/lib/normalize/industry.ts`. Parameters are typed `unknown` (not `string | null | undefined`) and lookups go through `Object.create(null)` tables — following the convention in `src/lib/normalize/regions.ts` — so a scraper-controlled key like `'constructor'` or `'__proto__'` cannot resolve to an inherited value off `Object.prototype`:
+Create `src/lib/normalize/industry.ts`. Parameters are typed `unknown` (not `string | null | undefined`) and lookups go through `Object.create(null)` tables — following the convention in `src/lib/normalize/regions.ts` — so a scraper-controlled key like `'constructor'` or `'__proto__'` cannot resolve to an inherited value off `Object.prototype`. `INDUSTRIES` is frozen with `Object.freeze` and typed `readonly string[]`, matching `LANGUAGE_LEVELS` in `languages.ts` and `KNOWN_COUNTRIES` in `regions.ts` — Phase 2 UI code will import this list to populate a dropdown, and an unfrozen shared array is one `.sort()` or `.push()` away from being corrupted for every other importer:
 
 ```ts
 import industries from '@/data/industries.json'
@@ -1825,7 +1844,7 @@ export function normalizeIndustry(
   return null
 }
 
-export const INDUSTRIES = Array.from(CANONICAL).sort()
+export const INDUSTRIES: readonly string[] = Object.freeze(Array.from(CANONICAL).sort())
 ```
 
 - [ ] **Step 5: Fix the mapper**
@@ -1900,7 +1919,7 @@ export function mapToCandidate(rawItem: any): Candidate {
       field: ed?.fieldOfStudy || ed?.field,
       year: ed?.year,
     })),
-    languages: rawItem.languages || [],
+    languages: asArray(rawItem.languages),
     certifications: asArray(rawItem.certifications)
       .map((c: any) => (typeof c === "string" ? c : c?.name))
       .filter((c: unknown): c is string => typeof c === "string"),
@@ -1910,7 +1929,9 @@ export function mapToCandidate(rawItem: any): Candidate {
 }
 ```
 
-Third, the same "throws on truthy non-array" defect was found by execution in three of the five sibling modules built in earlier tasks — `normalizeLocation` (`raw.trim()` called without a `typeof raw === 'string'` guard), `totalYearsOfExperience`, and `normalizeEducation` (both did `if (!entries || entries.length === 0)` then `for...of entries`, which throws when `entries` is a truthy non-array such as a number or plain object). All three are hardened the same way: `normalizeLocation`'s parameter is now typed `unknown` with an explicit `typeof raw !== 'string'` check, and the other two now guard with `Array.isArray(entries)`. This surfaced while testing `normalizeProfile`'s never-throws guarantee (Step 6) against wrong-typed `Candidate` fields.
+Third, the same "throws on truthy non-array" defect was found by execution in three of the five sibling modules built in earlier tasks — `normalizeLocation` (`raw.trim()` called without a `typeof raw === 'string'` guard), `totalYearsOfExperience`, and `normalizeEducation` (both did `if (!entries || entries.length === 0)` then `for...of entries`, which throws when `entries` is a truthy non-array such as a number or plain object). All three are hardened the same way: `normalizeLocation`'s parameter is now typed `unknown` with an explicit `typeof raw !== 'string'` check, and the other two now guard with `Array.isArray(entries)` — and, since both now genuinely tolerate any input at runtime, their collection parameters (`entries`) are widened from `EducationEntry[] | null | undefined` / `ExperienceEntry[] | null | undefined` to `unknown` too, so the exported signature is honest about what it accepts (the element types `EducationEntry`/`ExperienceEntry` stay exported unchanged; `Array.isArray` narrows `unknown` to `any[]` for the internal loop, same as the `asArray` helper below). This surfaced while testing `normalizeProfile`'s never-throws guarantee (Step 6) against wrong-typed `Candidate` fields.
+
+`mapToCandidate`'s `languages` field is also routed through the same `asArray` guard as `skills`/`experience`/`education`/`certifications`, rather than the plan's original `rawItem.languages || []` — a non-array `languages` didn't crash only because `normalizeLanguages` happened to guard independently downstream, which is that module's defensiveness, not a guarantee `apify.ts` itself made for a field the whole point of this task was to stop discarding.
 
 - [ ] **Step 6: Write the composed normaliser**
 
@@ -1924,6 +1945,11 @@ import { normalizeIndustry } from './industry'
 import { normalizeLanguages, type NormalizedLanguage } from './languages'
 import { normalizeLocation, type NormalizedLocation } from './location'
 
+// export * re-exports every named export from these six modules; TypeScript silently
+// drops (rather than errors on) a name exported by more than one of them, so a future
+// module added to this directory must keep its exported names unique across all siblings,
+// or a collision will fail silently here and surface only as a confusing missing export
+// at the consumer's import site.
 export * from './education'
 export * from './experience'
 export * from './industry'
@@ -1976,7 +2002,7 @@ export function normalizeProfile(candidate: Candidate, now: Date = new Date()): 
 - [ ] **Step 7: Run the tests to verify they pass**
 
 Run: `npm test`
-Expected: PASS across all files — 5 buildBooleanQuery, 10 regions, 12 location, 13 experience, 15 education, 12 languages, 6 industry, 9 mapper, 4 normalizeProfile (`tests/normalize/index.test.ts`) — 86 tests total. (The regions/location/experience/education/languages counts are higher than the 7/7/8/7/6 originally estimated in Tasks 2–6, because those modules' own hardening tests were added as those tasks were actually built; 67 of the 86 were already passing before this task.)
+Expected: PASS across all files — 5 buildBooleanQuery, 10 regions, 12 location, 13 experience, 15 education, 12 languages, 7 industry, 10 mapper, 4 normalizeProfile (`tests/normalize/index.test.ts`) — 88 tests total. (The regions/location/experience/education/languages counts are higher than the 7/7/8/7/6 originally estimated in Tasks 2–6, because those modules' own hardening tests were added as those tasks were actually built; 67 of the 88 were already passing before this task.)
 
 - [ ] **Step 8: Verify the app still compiles**
 

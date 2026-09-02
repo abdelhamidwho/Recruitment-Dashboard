@@ -5,6 +5,11 @@ import { normalizeIndustry } from './industry'
 import { normalizeLanguages, type NormalizedLanguage } from './languages'
 import { normalizeLocation, type NormalizedLocation } from './location'
 
+// export * re-exports every named export from these six modules; TypeScript silently
+// drops (rather than errors on) a name exported by more than one of them, so a future
+// module added to this directory must keep its exported names unique across all siblings,
+// or a collision will fail silently here and surface only as a confusing missing export
+// at the consumer's import site.
 export * from './education'
 export * from './experience'
 export * from './industry'

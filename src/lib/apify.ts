@@ -121,7 +121,7 @@ export function mapToCandidate(rawItem: any): Candidate {
       field: ed?.fieldOfStudy || ed?.field,
       year: ed?.year,
     })),
-    languages: rawItem.languages || [],
+    languages: asArray(rawItem.languages),
     certifications: asArray(rawItem.certifications)
       .map((c: any) => (typeof c === "string" ? c : c?.name))
       .filter((c: unknown): c is string => typeof c === "string"),

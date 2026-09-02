@@ -69,9 +69,15 @@ describe('mapToCandidate', () => {
       expect(candidate.skills).toEqual([])
       expect(candidate.experience).toEqual([])
       expect(candidate.education).toEqual([])
+      expect(candidate.languages).toEqual([])
       expect(candidate.certifications).toEqual([])
-      // languages is passed through as-is per the plan; only array/undefined shapes are valid,
-      // but the mapper itself must not throw when handed something else.
+    }
+  })
+
+  it('coerces a non-array languages into an empty array, same as its four siblings', () => {
+    const badValues = [null, 42, 'oops', { not: 'an array' }]
+    for (const bad of badValues) {
+      expect(mapToCandidate({ ...RAW, languages: bad }).languages).toEqual([])
     }
   })
 

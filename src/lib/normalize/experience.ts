@@ -89,7 +89,7 @@ function mergedMonths(intervals: Interval[]): number {
  *   callers that need determinism (tests) should pass a fixed value.
  */
 export function totalYearsOfExperience(
-  entries: ExperienceEntry[] | null | undefined,
+  entries: unknown,
   now: Date = new Date(),
 ): number | null {
   if (!Array.isArray(entries) || entries.length === 0) return null

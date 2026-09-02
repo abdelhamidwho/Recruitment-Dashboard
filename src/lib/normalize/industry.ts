@@ -55,4 +55,4 @@ export function normalizeIndustry(
   return null
 }
 
-export const INDUSTRIES = Array.from(CANONICAL).sort()
+export const INDUSTRIES: readonly string[] = Object.freeze(Array.from(CANONICAL).sort())

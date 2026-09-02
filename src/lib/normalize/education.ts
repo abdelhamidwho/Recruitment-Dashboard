@@ -116,7 +116,7 @@ function addCaseInsensitive(value: string, seen: Set<string>, order: string[]): 
  *    the casing of the first occurrence of each value.
  */
 export function normalizeEducation(
-  entries: EducationEntry[] | null | undefined,
+  entries: unknown,
 ): NormalizedEducation {
   if (!Array.isArray(entries) || entries.length === 0) {
     return { highestDegree: null, fieldsOfStudy: [], schools: [] }

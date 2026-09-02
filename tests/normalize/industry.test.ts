@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeIndustry } from '@/lib/normalize/industry'
+import { normalizeIndustry, INDUSTRIES } from '@/lib/normalize/industry'
 
 describe('normalizeIndustry', () => {
   it('canonicalises a profile industry', () => {
@@ -41,5 +41,16 @@ describe('normalizeIndustry', () => {
       expect(normalizeIndustry(null, key)).toBeNull()
       expect(() => normalizeIndustry(key, key)).not.toThrow()
     }
+  })
+})
+
+describe('INDUSTRIES', () => {
+  it('is frozen so a shared importer (e.g. a Phase 2 dropdown) cannot mutate it in place', () => {
+    expect(Object.isFrozen(INDUSTRIES)).toBe(true)
+    expect(() => (INDUSTRIES as string[]).push('Something New')).toThrow()
+    expect(() => (INDUSTRIES as string[]).sort((a, b) => b.localeCompare(a))).toThrow()
+    expect(() => {
+      ;(INDUSTRIES as string[])[0] = 'Overwritten'
+    }).toThrow()
   })
 })
