@@ -61,4 +61,32 @@ describe('normalizeEducation', () => {
       schools: ['Only a school'],
     })
   })
+
+  it('does not emit a bare degree-name fragment as a field of study', () => {
+    expect(normalizeEducation([{ school: 'S', degree: 'Master of Science' }]).fieldsOfStudy).toEqual([])
+    expect(normalizeEducation([{ school: 'S', degree: 'High School Certificate' }]).fieldsOfStudy).toEqual([])
+    expect(normalizeEducation([{ school: 'S', degree: 'Higher Diploma' }]).fieldsOfStudy).toEqual([])
+    expect(normalizeEducation([{ school: 'S', degree: 'Thanaweya Amma' }]).fieldsOfStudy).toEqual([])
+  })
+
+  it('still parses multi-word fields correctly for Bachelor, Master and Doctorate degrees', () => {
+    expect(normalizeEducation([{ school: 'S', degree: 'MSc Data Science' }]).fieldsOfStudy).toEqual([
+      'Data Science',
+    ])
+    expect(normalizeEducation([{ school: 'S', degree: 'B.S. Computer Science' }]).fieldsOfStudy).toEqual([
+      'Computer Science',
+    ])
+  })
+
+  it('never filters an explicit field, even if it matches a stop word', () => {
+    expect(
+      normalizeEducation([{ school: 'S', degree: 'Master of Science', field: 'Science' }]).fieldsOfStudy,
+    ).toEqual(['Science'])
+  })
+
+  it('treats non-string degree, school and field values as absent rather than throwing', () => {
+    expect(
+      normalizeEducation([{ school: 42 as unknown as string, degree: {} as unknown as string, field: [] as unknown as string }]),
+    ).toEqual({ highestDegree: null, fieldsOfStudy: [], schools: [] })
+  })
 })

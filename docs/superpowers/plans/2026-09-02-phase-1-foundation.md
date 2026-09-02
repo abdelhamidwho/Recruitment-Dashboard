@@ -939,6 +939,34 @@ describe('normalizeEducation', () => {
       schools: ['Only a school'],
     })
   })
+
+  it('does not emit a bare degree-name fragment as a field of study', () => {
+    expect(normalizeEducation([{ school: 'S', degree: 'Master of Science' }]).fieldsOfStudy).toEqual([])
+    expect(normalizeEducation([{ school: 'S', degree: 'High School Certificate' }]).fieldsOfStudy).toEqual([])
+    expect(normalizeEducation([{ school: 'S', degree: 'Higher Diploma' }]).fieldsOfStudy).toEqual([])
+    expect(normalizeEducation([{ school: 'S', degree: 'Thanaweya Amma' }]).fieldsOfStudy).toEqual([])
+  })
+
+  it('still parses multi-word fields correctly for Bachelor, Master and Doctorate degrees', () => {
+    expect(normalizeEducation([{ school: 'S', degree: 'MSc Data Science' }]).fieldsOfStudy).toEqual([
+      'Data Science',
+    ])
+    expect(normalizeEducation([{ school: 'S', degree: 'B.S. Computer Science' }]).fieldsOfStudy).toEqual([
+      'Computer Science',
+    ])
+  })
+
+  it('never filters an explicit field, even if it matches a stop word', () => {
+    expect(
+      normalizeEducation([{ school: 'S', degree: 'Master of Science', field: 'Science' }]).fieldsOfStudy,
+    ).toEqual(['Science'])
+  })
+
+  it('treats non-string degree, school and field values as absent rather than throwing', () => {
+    expect(
+      normalizeEducation([{ school: 42 as unknown as string, degree: {} as unknown as string, field: [] as unknown as string }]),
+    ).toEqual({ highestDegree: null, fieldsOfStudy: [], schools: [] })
+  })
 })
 ```
 
@@ -985,6 +1013,25 @@ const PATTERNS: { level: DegreeLevel; pattern: RegExp }[] = [
   { level: 'High school', pattern: /\b(high school|secondary|thanaweya)\b/i },
 ]
 
+// Degree levels for which parsing a field of study out of the degree string is meaningful.
+const FIELD_ELIGIBLE_LEVELS: DegreeLevel[] = ['Bachelor', 'Master', 'Doctorate']
+
+// Generic words that are part of a degree's own name, not a field of study — a parsed
+// (not explicit) field consisting of exactly one of these words is discarded.
+const GENERIC_FIELD_WORDS = new Set([
+  'science',
+  'arts',
+  'letters',
+  'philosophy',
+  'commerce',
+  'technology',
+  'studies',
+  'general',
+  'certificate',
+  'honours',
+  'honors',
+])
+
 function levelFor(degree: string): DegreeLevel | null {
   for (const { level, pattern } of PATTERNS) {
     if (pattern.test(degree)) return level
@@ -993,14 +1040,17 @@ function levelFor(degree: string): DegreeLevel | null {
 }
 
 function fieldFromDegree(degree: string, level: DegreeLevel | null): string | null {
-  if (!level || level === 'MBA') return null
+  if (!level || !FIELD_ELIGIBLE_LEVELS.includes(level)) return null
   const stripped = degree
     .replace(PATTERNS.find((p) => p.level === level)!.pattern, ' ')
     .replace(/\b(of|in|degree|honours|honors|hons)\b/gi, ' ')
     .replace(/[.,;()]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-  return stripped.length > 1 ? stripped : null
+  if (stripped.length <= 1) return null
+  const words = stripped.split(' ')
+  if (words.length === 1 && GENERIC_FIELD_WORDS.has(words[0].toLowerCase())) return null
+  return stripped
 }
 
 export function normalizeEducation(
@@ -1015,13 +1065,16 @@ export function normalizeEducation(
   const schools: string[] = []
 
   for (const entry of entries) {
-    if (entry.school && !schools.includes(entry.school)) schools.push(entry.school)
+    const school = typeof entry.school === 'string' ? entry.school.trim() : ''
+    const degree = typeof entry.degree === 'string' ? entry.degree.trim() : ''
+    const explicitField = typeof entry.field === 'string' ? entry.field.trim() : ''
 
-    const degree = entry.degree?.trim() ?? ''
+    if (school && !schools.includes(school)) schools.push(school)
+
     const level = degree ? levelFor(degree) : null
     if (level && (!highest || RANK[level] > RANK[highest])) highest = level
 
-    const field = entry.field?.trim() || fieldFromDegree(degree, level)
+    const field = explicitField || fieldFromDegree(degree, level)
     if (field && !fields.includes(field)) fields.push(field)
   }
 
@@ -1032,7 +1085,7 @@ export function normalizeEducation(
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `npx vitest run tests/normalize/education.test.ts`
-Expected: PASS, 7 tests.
+Expected: PASS, 11 tests.
 
 - [ ] **Step 5: Commit**
 
