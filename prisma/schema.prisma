@@ -1,0 +1,89 @@
+datasource db {
+  provider = "sqlite"
+}
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+model SavedSearch {
+  id        String   @id @default(cuid())
+  name      String
+  filters   String   // JSON string of filters
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model SearchRun {
+  id          String   @id @default(cuid())
+  runId       String?  // Apify run ID
+  datasetId   String?  // Apify dataset ID
+  status      String   @default("RUNNING") // READY, RUNNING, SUCCEEDED, FAILED, TIMED-OUT, ABORTED
+  filters     String   // JSON string of filters
+  itemCount   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  candidates  Candidate[]
+}
+
+model Candidate {
+  id                   String   @id @default(cuid())
+  externalId           String
+  fullName             String
+  headline             String?
+  currentTitle         String?
+  currentCompany       String?
+  location             String?
+  profileUrl           String   // Used for deduplication
+  avatarUrl            String?
+  summary              String?
+  skills               String   // JSON string of array
+  experience           String   // JSON string of array
+  education            String   // JSON string of array
+  languages            String?  // JSON string of array
+  certifications       String?  // JSON string of array
+  totalYearsExperience Float?
+  raw                  String   // JSON string
+  
+  score                Int?     // Score based on filters
+  scoreBreakdown       String?  // JSON string
+
+  searchRunId          String
+  searchRun            SearchRun @relation(fields: [searchRunId], references: [id])
+  
+  shortlistItems       ShortlistItem[]
+  notes                Note[]
+
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model Shortlist {
+  id        String   @id @default(cuid())
+  name      String
+  items     ShortlistItem[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ShortlistItem {
+  id          String    @id @default(cuid())
+  shortlistId String
+  shortlist   Shortlist @relation(fields: [shortlistId], references: [id])
+  candidateId String
+  candidate   Candidate @relation(fields: [candidateId], references: [id])
+  stage       String    @default("Sourced") // Sourced, Contacted, Screening, Interview, Rejected
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Note {
+  id          String    @id @default(cuid())
+  content     String
+  candidateId String
+  candidate   Candidate @relation(fields: [candidateId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}

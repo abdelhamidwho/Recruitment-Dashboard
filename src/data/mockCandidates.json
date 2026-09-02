@@ -1,0 +1,58 @@
+[
+  {
+    "externalId": "mock-1",
+    "fullName": "Jane Doe",
+    "headline": "Senior Backend Engineer at TechCorp",
+    "currentTitle": "Senior Backend Engineer",
+    "currentCompany": "TechCorp",
+    "location": "San Francisco, CA",
+    "profileUrl": "https://linkedin.com/in/janedoe",
+    "avatarUrl": "",
+    "summary": "Experienced backend developer specializing in Node.js and scalable microservices.",
+    "skills": ["Node.js", "TypeScript", "PostgreSQL", "Docker", "AWS"],
+    "experience": [
+      {
+        "title": "Senior Backend Engineer",
+        "company": "TechCorp",
+        "durationMonths": 36
+      },
+      {
+        "title": "Backend Developer",
+        "company": "Startup Inc",
+        "durationMonths": 24
+      }
+    ],
+    "education": [
+      {
+        "school": "University of California",
+        "degree": "B.S. Computer Science"
+      }
+    ],
+    "languages": ["English"],
+    "totalYearsExperience": 5,
+    "raw": {}
+  },
+  {
+    "externalId": "mock-2",
+    "fullName": "John Smith",
+    "headline": "Full-Stack Developer",
+    "currentTitle": "Software Engineer",
+    "currentCompany": "WebSolutions",
+    "location": "Remote",
+    "profileUrl": "https://linkedin.com/in/johnsmith",
+    "avatarUrl": "",
+    "summary": "Passionate about building performant web apps with React and Node.",
+    "skills": ["React", "Node.js", "Express", "MongoDB"],
+    "experience": [
+      {
+        "title": "Software Engineer",
+        "company": "WebSolutions",
+        "durationMonths": 18
+      }
+    ],
+    "education": [],
+    "languages": ["English", "Spanish"],
+    "totalYearsExperience": 1.5,
+    "raw": {}
+  }
+]

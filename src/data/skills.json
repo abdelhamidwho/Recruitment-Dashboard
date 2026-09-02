@@ -1,0 +1,34 @@
+[
+  {
+    "category": "Backend",
+    "skills": ["Node.js", "Express", "NestJS", "Python", "Django", "FastAPI", "Flask", "Java", "Spring Boot", "Go", "Rust", "C#", ".NET", "PHP", "Laravel", "Ruby on Rails", "Kotlin", "gRPC", "GraphQL", "REST", "microservices", "event-driven architecture"]
+  },
+  {
+    "category": "Databases",
+    "skills": ["PostgreSQL", "MySQL", "MongoDB", "Redis", "Elasticsearch", "DynamoDB", "Cassandra", "SQL Server", "Kafka", "RabbitMQ"]
+  },
+  {
+    "category": "DevOps / Cloud",
+    "skills": ["AWS", "Azure", "GCP", "Docker", "Kubernetes", "Terraform", "Ansible", "Jenkins", "GitHub Actions", "GitLab CI", "Prometheus", "Grafana", "Linux", "Nginx"]
+  },
+  {
+    "category": "Frontend",
+    "skills": ["React", "Next.js", "Vue", "Nuxt", "Angular", "Svelte", "TypeScript", "JavaScript", "Tailwind", "Redux", "HTML/CSS", "Webpack", "Vite"]
+  },
+  {
+    "category": "Mobile",
+    "skills": ["Swift", "SwiftUI", "Kotlin", "Jetpack Compose", "Flutter", "React Native", "iOS", "Android"]
+  },
+  {
+    "category": "Data / AI",
+    "skills": ["SQL", "Python", "pandas", "Spark", "Airflow", "dbt", "Snowflake", "BigQuery", "TensorFlow", "PyTorch", "scikit-learn", "LLMs", "RAG", "MLOps"]
+  },
+  {
+    "category": "QA",
+    "skills": ["Selenium", "Cypress", "Playwright", "Jest", "PyTest", "JMeter", "Postman", "automation", "manual testing"]
+  },
+  {
+    "category": "Product / Design",
+    "skills": ["Figma", "Jira", "Agile", "Scrum", "roadmapping", "user research", "wireframing", "design systems"]
+  }
+]
