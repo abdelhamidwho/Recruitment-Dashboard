@@ -1,0 +1,146 @@
+import { NextResponse } from "next/server";
+import { fetchDatasetItems, getRunStatus, type Candidate } from "@/lib/apify";
+import { requireApiUser } from "@/lib/auth/requireUser";
+import { normalizeProfile } from "@/lib/normalize";
+import { prisma } from "@/lib/prisma";
+import { scoreCandidate } from "@/lib/scoring";
+import { SearchFilters } from "@/lib/buildBooleanQuery";
+
+/** Upserts one scraped profile onto its permanent Person row, keyed on profileUrl. */
+async function upsertPerson(candidate: Candidate) {
+  const normalized = normalizeProfile(candidate);
+
+  const shared = {
+    externalId: candidate.externalId,
+    fullName: candidate.fullName,
+    headline: candidate.headline,
+    currentTitle: candidate.currentTitle,
+    currentCompany: candidate.currentCompany,
+    avatarUrl: candidate.avatarUrl,
+    summary: candidate.summary,
+    locationRaw: normalized.location.raw,
+    city: normalized.location.city,
+    country: normalized.location.country,
+    region: normalized.location.region,
+    industry: normalized.industry,
+    highestDegree: normalized.education.highestDegree,
+    fieldsOfStudy: JSON.stringify(normalized.education.fieldsOfStudy),
+    totalYearsExperience: normalized.totalYearsExperience,
+    skills: JSON.stringify(candidate.skills ?? []),
+    experience: JSON.stringify(candidate.experience ?? []),
+    education: JSON.stringify(candidate.education ?? []),
+    languages: JSON.stringify(normalized.languages),
+    certifications: JSON.stringify(candidate.certifications ?? []),
+    raw: JSON.stringify(candidate.raw ?? {}),
+    lastRefreshedAt: new Date(),
+  };
+
+  const existing = await prisma.person.findUnique({
+    where: { profileUrl: candidate.profileUrl },
+    select: { id: true },
+  });
+
+  const person = await prisma.person.upsert({
+    where: { profileUrl: candidate.profileUrl },
+    create: { profileUrl: candidate.profileUrl, ...shared },
+    update: shared,
+  });
+
+  return { person, wasKnownBefore: existing !== null };
+}
+
+export async function GET(_req: Request, { params }: { params: Promise<{ searchRunId: string }> }) {
+  const auth = await requireApiUser();
+  if (auth instanceof NextResponse) return auth;
+
+  const { searchRunId } = await params;
+
+  try {
+    const searchRun = await prisma.searchRun.findUnique({ where: { id: searchRunId } });
+    if (!searchRun) return NextResponse.json({ error: "Run not found" }, { status: 404 });
+
+    let status = searchRun.status;
+    if (searchRun.runId) {
+      try {
+        status = await getRunStatus(searchRun.runId);
+      } catch (error: any) {
+        await prisma.searchRun.update({
+          where: { id: searchRun.id },
+          data: { status: "FAILED", failureReason: error.message },
+        });
+        return NextResponse.json({ status: "FAILED", error: error.message }, { status: 502 });
+      }
+    }
+
+    if (status !== searchRun.status) {
+      await prisma.searchRun.update({ where: { id: searchRun.id }, data: { status } });
+    }
+
+    if (status === "SUCCEEDED" && searchRun.datasetId && searchRun.itemCount === 0) {
+      const filters = JSON.parse(searchRun.filters) as Partial<SearchFilters>;
+      const scraped = await fetchDatasetItems(searchRun.datasetId);
+
+      for (const candidate of scraped) {
+        if (!candidate.profileUrl) continue;
+        const { person, wasKnownBefore } = await upsertPerson(candidate);
+        const { score, breakdown } = scoreCandidate(candidate, filters);
+
+        await prisma.searchRunPerson.upsert({
+          where: { searchRunId_personId: { searchRunId: searchRun.id, personId: person.id } },
+          create: {
+            searchRunId: searchRun.id,
+            personId: person.id,
+            score,
+            scoreBreakdown: JSON.stringify(breakdown),
+            wasKnownBefore,
+          },
+          update: { score, scoreBreakdown: JSON.stringify(breakdown) },
+        });
+      }
+
+      await prisma.searchRun.update({
+        where: { id: searchRun.id },
+        data: { itemCount: scraped.length },
+      });
+    }
+
+    const appearances = await prisma.searchRunPerson.findMany({
+      where: { searchRunId: searchRun.id },
+      include: { person: true },
+      orderBy: { score: "desc" },
+    });
+
+    // Kept flat and named as the current UI expects; Phase 2 replaces this shape.
+    const candidates = appearances.map(({ person, score, scoreBreakdown, wasKnownBefore }) => ({
+      id: person.id,
+      externalId: person.externalId,
+      fullName: person.fullName,
+      headline: person.headline,
+      currentTitle: person.currentTitle,
+      currentCompany: person.currentCompany,
+      location: person.locationRaw,
+      city: person.city,
+      country: person.country,
+      region: person.region,
+      industry: person.industry,
+      highestDegree: person.highestDegree,
+      fieldsOfStudy: person.fieldsOfStudy,
+      profileUrl: person.profileUrl,
+      avatarUrl: person.avatarUrl,
+      summary: person.summary,
+      skills: person.skills,
+      experience: person.experience,
+      education: person.education,
+      languages: person.languages,
+      certifications: person.certifications,
+      totalYearsExperience: person.totalYearsExperience,
+      score,
+      scoreBreakdown,
+      wasKnownBefore,
+    }));
+
+    return NextResponse.json({ status, itemCount: candidates.length, candidates });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}

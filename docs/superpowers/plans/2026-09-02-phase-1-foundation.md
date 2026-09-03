@@ -4281,20 +4281,26 @@ This task fixes the mock-run-id collision described in the reference notes, and 
 
 Replace `src/app/api/search/route.ts`:
 
+Note: by the time this task was implemented, `src/app/api/search/route.ts` had already been patched (in the auth-bypass fix) to use the stronger `requireApiUser()` helper instead of the plain `getUser()` check shown in the original draft below. `requireApiUser()` returns 401 for an unauthenticated caller and 403 `{"error":"Password change required"}` for a caller whose account still has `mustChangePassword` set — do not regress that to a bare `getUser()`/401 check. The code actually shipped is:
+
 ```ts
 import { NextResponse } from "next/server";
 import { startRun } from "@/lib/apify";
-import { getUser, UNAUTHORIZED } from "@/lib/auth/requireUser";
 import { prisma } from "@/lib/prisma";
+import { requireApiUser } from "@/lib/auth/requireUser";
 
 export async function POST(req: Request) {
-  const user = await getUser();
-  if (!user) return NextResponse.json(UNAUTHORIZED, { status: 401 });
+  const auth = await requireApiUser();
+  if (auth instanceof NextResponse) return auth;
+  const user = auth;
 
   try {
     const filters = await req.json();
+
+    // Start Apify run
     const { runId, datasetId } = await startRun(filters);
 
+    // Create SearchRun record
     const searchRun = await prisma.searchRun.create({
       data: {
         runId,
@@ -4305,7 +4311,7 @@ export async function POST(req: Request) {
       },
     });
 
-    return NextResponse.json({ searchRunId: searchRun.id, runId });
+    return NextResponse.json({ runId, searchRunId: searchRun.id });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -4319,12 +4325,12 @@ git rm -r "src/app/api/search/[runId]"
 mkdir -p "src/app/api/search/[searchRunId]"
 ```
 
-Create `src/app/api/search/[searchRunId]/route.ts`:
+Create `src/app/api/search/[searchRunId]/route.ts`. As above, this uses `requireApiUser()` (not the plain `getUser()` shown in the original draft) so the mustChangePassword gate carries over from the file it replaces:
 
 ```ts
 import { NextResponse } from "next/server";
 import { fetchDatasetItems, getRunStatus, type Candidate } from "@/lib/apify";
-import { getUser, UNAUTHORIZED } from "@/lib/auth/requireUser";
+import { requireApiUser } from "@/lib/auth/requireUser";
 import { normalizeProfile } from "@/lib/normalize";
 import { prisma } from "@/lib/prisma";
 import { scoreCandidate } from "@/lib/scoring";
@@ -4374,8 +4380,8 @@ async function upsertPerson(candidate: Candidate) {
 }
 
 export async function GET(_req: Request, { params }: { params: Promise<{ searchRunId: string }> }) {
-  const user = await getUser();
-  if (!user) return NextResponse.json(UNAUTHORIZED, { status: 401 });
+  const auth = await requireApiUser();
+  if (auth instanceof NextResponse) return auth;
 
   const { searchRunId } = await params;
 
@@ -4472,16 +4478,16 @@ export async function GET(_req: Request, { params }: { params: Promise<{ searchR
 
 - [ ] **Step 3: Update export and taxonomy**
 
-Replace `src/app/api/export/route.ts`:
+Replace `src/app/api/export/route.ts`. Same substitution: `requireApiUser()` in place of the draft's plain `getUser()` check, matching what was already in this file from the auth-bypass fix.
 
 ```ts
 import { NextResponse } from "next/server";
-import { getUser, UNAUTHORIZED } from "@/lib/auth/requireUser";
 import { prisma } from "@/lib/prisma";
+import { requireApiUser } from "@/lib/auth/requireUser";
 
 export async function GET(req: Request) {
-  const user = await getUser();
-  if (!user) return NextResponse.json(UNAUTHORIZED, { status: 401 });
+  const auth = await requireApiUser();
+  if (auth instanceof NextResponse) return auth;
 
   const searchRunId = new URL(req.url).searchParams.get("searchRunId");
   if (!searchRunId) {
@@ -4527,22 +4533,26 @@ export async function GET(req: Request) {
 }
 ```
 
-Replace `src/app/api/taxonomy/route.ts` with the same body it has now, wrapped in the auth check:
+`src/app/api/taxonomy/route.ts` needed no change: by the time this task landed, the auth-bypass fix had already wrapped it in `requireApiUser()` and its response shape (`{ skills, presets }`, not `{ skills, rolePresets }`) already matched what `SearchBuilder` consumes. Its current body:
 
 ```ts
 import { NextResponse } from "next/server";
 import skills from "@/data/skills.json";
 import rolePresets from "@/data/rolePresets.json";
-import { getUser, UNAUTHORIZED } from "@/lib/auth/requireUser";
+import { requireApiUser } from "@/lib/auth/requireUser";
 
 export async function GET() {
-  const user = await getUser();
-  if (!user) return NextResponse.json(UNAUTHORIZED, { status: 401 });
-  return NextResponse.json({ skills, rolePresets });
+  const auth = await requireApiUser();
+  if (auth instanceof NextResponse) return auth;
+
+  return NextResponse.json({
+    skills,
+    presets: rolePresets,
+  });
 }
 ```
 
-If the existing file's response shape differs, keep the existing shape and only add the two auth lines — `SearchBuilder` depends on it.
+If the existing file's response shape differs, keep the existing shape and only add the auth check — `SearchBuilder` depends on it.
 
 - [ ] **Step 4: Point the client at the new key**
 

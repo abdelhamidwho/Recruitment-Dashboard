@@ -111,12 +111,12 @@ export function SearchBuilder({
       if (data.error) throw new Error(data.error);
 
       // Poll
-      const runId = data.runId;
-      setCurrentRunId(runId);
+      const searchRunId = data.searchRunId;
+      setCurrentRunId(searchRunId);
       let status = "RUNNING";
       while (status === "RUNNING" || status === "READY") {
         await new Promise((r) => setTimeout(r, 2000));
-        const pollRes = await fetch(`/api/search/${runId}`);
+        const pollRes = await fetch(`/api/search/${searchRunId}`);
         const pollData = await pollRes.json();
         if (pollData.error) throw new Error(pollData.error);
         status = pollData.status;
@@ -281,7 +281,7 @@ export function SearchBuilder({
         <div className="mt-8 border-t pt-8">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-2xl font-bold">Results ({searchResults.length})</h2>
-            <a href={`/api/export?runId=${currentRunId}`} download className="inline-flex shrink-0 items-center justify-center rounded-lg border border-border bg-background px-2.5 h-8 text-sm font-medium transition-all hover:bg-muted focus-visible:border-ring">
+            <a href={`/api/export?searchRunId=${currentRunId}`} download className="inline-flex shrink-0 items-center justify-center rounded-lg border border-border bg-background px-2.5 h-8 text-sm font-medium transition-all hover:bg-muted focus-visible:border-ring">
               Export CSV
             </a>
           </div>

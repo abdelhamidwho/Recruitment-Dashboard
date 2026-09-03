@@ -6,36 +6,45 @@ export async function GET(req: Request) {
   const auth = await requireApiUser();
   if (auth instanceof NextResponse) return auth;
 
-  const { searchParams } = new URL(req.url);
-  const runId = searchParams.get("runId");
-
-  if (!runId) return NextResponse.json({ error: "runId required" }, { status: 400 });
-
-  const searchRun = await prisma.searchRun.findFirst({
-    where: { runId },
-    include: { candidates: true }
-  });
-
-  if (!searchRun) return NextResponse.json({ error: "Run not found" }, { status: 404 });
-
-  let csv = "Name,Headline,Company,Title,Location,Profile URL,Score\n";
-  for (const c of searchRun.candidates) {
-    const row = [
-      c.fullName,
-      c.headline || "",
-      c.currentCompany || "",
-      c.currentTitle || "",
-      c.location || "",
-      c.profileUrl,
-      c.score || 0
-    ].map(f => `"${String(f).replace(/"/g, '""')}"`).join(",");
-    csv += row + "\n";
+  const searchRunId = new URL(req.url).searchParams.get("searchRunId");
+  if (!searchRunId) {
+    return NextResponse.json({ error: "searchRunId required" }, { status: 400 });
   }
 
-  return new NextResponse(csv, {
+  const appearances = await prisma.searchRunPerson.findMany({
+    where: { searchRunId },
+    include: { person: true },
+    orderBy: { score: "desc" },
+  });
+
+  if (appearances.length === 0) {
+    return NextResponse.json({ error: "Run not found or empty" }, { status: 404 });
+  }
+
+  const header = "Name,Headline,Company,Title,City,Country,Region,Industry,Degree,Years,Profile URL,Score";
+  const rows = appearances.map(({ person, score }) =>
+    [
+      person.fullName,
+      person.headline ?? "",
+      person.currentCompany ?? "",
+      person.currentTitle ?? "",
+      person.city ?? "",
+      person.country ?? "",
+      person.region ?? "",
+      person.industry ?? "",
+      person.highestDegree ?? "",
+      person.totalYearsExperience ?? "",
+      person.profileUrl,
+      score ?? 0,
+    ]
+      .map((field) => `"${String(field).replace(/"/g, '""')}"`)
+      .join(","),
+  );
+
+  return new NextResponse([header, ...rows].join("\n") + "\n", {
     headers: {
       "Content-Type": "text/csv",
-      "Content-Disposition": `attachment; filename="candidates-${runId}.csv"`
-    }
+      "Content-Disposition": `attachment; filename="candidates-${searchRunId}.csv"`,
+    },
   });
 }

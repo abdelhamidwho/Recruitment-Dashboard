@@ -6,13 +6,14 @@ import { requireApiUser } from "@/lib/auth/requireUser";
 export async function POST(req: Request) {
   const auth = await requireApiUser();
   if (auth instanceof NextResponse) return auth;
+  const user = auth;
 
   try {
     const filters = await req.json();
-    
+
     // Start Apify run
     const { runId, datasetId } = await startRun(filters);
-    
+
     // Create SearchRun record
     const searchRun = await prisma.searchRun.create({
       data: {
@@ -20,6 +21,7 @@ export async function POST(req: Request) {
         datasetId,
         filters: JSON.stringify(filters),
         status: "RUNNING",
+        ownerId: user.id,
       },
     });
 
