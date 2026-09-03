@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 import { startRun } from "@/lib/apify";
 import { prisma } from "@/lib/prisma";
+import { requireApiUser } from "@/lib/auth/requireUser";
 
 export async function POST(req: Request) {
+  const auth = await requireApiUser();
+  if (auth instanceof NextResponse) return auth;
+
   try {
     const filters = await req.json();
     

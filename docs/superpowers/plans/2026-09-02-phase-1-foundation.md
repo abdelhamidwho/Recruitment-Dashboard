@@ -4015,6 +4015,27 @@ git add src/app/login src/app/account src/app/api/auth src/proxy.ts src/app/layo
 git commit -m "feat: add login, logout, forced password change and route protection"
 ```
 
+- [x] **Step 9: Post-review correction — every route verifies its own session**
+
+An adversarial review of this task found that the design above never actually checked anything past "a cookie named `hrd_session` exists." `proxy.ts` cannot query the database (by design — see Step 5), so it was never going to be the place that validates a session; the mistake was that nothing else did either. None of the four data-bearing API routes (`/api/taxonomy`, `/api/search`, `/api/search/[runId]`, `/api/export`) called `getUser`/`requireUser`, so any client that could set an arbitrary `hrd_session` cookie value got a `200` with real candidate data — no valid session required. Separately, `mustChangePassword` was enforced only in `SessionBar`, a UI component that renders inside the root layout's HTML tree and therefore never runs for `/api/*` requests, so a bootstrap or admin-reset account could call every API route while still holding a known default password.
+
+Per-route API auth was originally scoped for a later task (once the search pipeline was rewired onto `Person` — see Task 18). The review made clear that gap was unacceptable even temporarily on an app holding real personal data, so that piece of work was pulled forward into this task instead of waiting.
+
+The corrected design:
+
+- `src/lib/auth/requireUser.ts` gained `requireApiUser()`, the route-handler counterpart to `requireUser()`. It returns the `SessionUser` on success, or a ready-to-return `NextResponse` otherwise: `401` (`UNAUTHORIZED`) when there is no valid session, `403` (`PASSWORD_CHANGE_REQUIRED`) when the session is valid but the account still has `mustChangePassword` set. Callers do:
+
+  ```ts
+  const auth = await requireApiUser()
+  if (auth instanceof NextResponse) return auth
+  ```
+
+  All four routes (`src/app/api/taxonomy/route.ts`, `src/app/api/search/route.ts`, `src/app/api/search/[runId]/route.ts`, `src/app/api/export/route.ts`) now start with this check. `search/[runId]` and `export` still reference the deleted `Candidate` Prisma model and fail `tsc --noEmit` for that pre-existing, unrelated reason — that rewrite is still Task 18's job; only the auth check was added here.
+- The `mustChangePassword` gate moved out of `SessionBar` (now back to presentational-only: name, admin link, sign-out) and into `requireUser()` itself, which is the one place every page already funnels through: it redirects to `/account/password` whenever `mustChangePassword` is true and the current path isn't already the password page. It still reads the current path from proxy's `x-pathname` header — that stays the right source: proxy sets it itself on every request it forwards, so a client-supplied header of the same name can't spoof it, and it avoids a second, possibly-drifting implementation of "what path is this" living in `requireUser.ts`.
+- `/account/password` and `POST /api/auth/logout` remain reachable for a `mustChangePassword` account: the password page calls `requireUser()` from itself, so the gate's "already on the password page" exception applies; logout doesn't call `getUser`/`requireUser`/`requireApiUser` at all, so it's never blocked.
+- `src/proxy.ts`'s `config.matcher` was widened from `_next/static`, `_next/image`, `favicon.ico` to also exclude common static-asset extensions (`svg`, `png`, `jpg`, `jpeg`, `gif`, `webp`, `ico`, `css`, `js`, `woff`, `woff2`, `ttf`, `otf`, `map`). `public/` files are served at the site root with no shared path prefix, so there's no single prefix to exclude the way `_next/static` can be — matching by extension is the available lever. Candidate data is never served from `public/`, so this only affects genuinely static assets and lets a logged-out visitor load images on `/login`.
+- `src/app/login/actions.ts` and `src/app/api/auth/login/route.ts` previously returned the generic failure immediately when the email was unknown, skipping `verifyPassword` entirely — measured at roughly 30ms versus ~150ms for a wrong password against a real account, a reliable signal that re-enabled the account enumeration the identical error message exists to prevent. Both files now compute a module-level, memoized dummy scrypt hash (`hashPassword('dummy-password-for-timing-safety')`, never used to authenticate anything) and run `verifyPassword` against it on the unknown-email path before returning the same generic failure, so both paths pay comparable scrypt cost. Measured after the fix: unknown email and wrong-password-for-a-real-account both land in the same ~100–190ms band.
+
 ---
 
 ## Task 17: User administration

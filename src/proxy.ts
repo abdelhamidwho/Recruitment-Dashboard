@@ -5,9 +5,9 @@ import { PUBLIC_PATHS, SESSION_COOKIE } from '@/lib/auth/constants'
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
 
-  // Forwarded so Server Components (SessionBar) can enforce the
-  // mustChangePassword redirect without proxy itself touching the
-  // database — see src/app/SessionBar.tsx.
+  // Forwarded so requireUser()/requireApiUser() can enforce the
+  // mustChangePassword gate without proxy itself touching the
+  // database — see src/lib/auth/requireUser.ts.
   const requestHeaders = new Headers(request.headers)
   requestHeaders.set('x-pathname', pathname)
   const withPathname = { request: { headers: requestHeaders } }
@@ -29,6 +29,13 @@ export function proxy(request: NextRequest) {
   return NextResponse.redirect(login)
 }
 
+// Excludes _next/static, _next/image, favicon.ico, and anything under
+// public/ — Next serves public/ files directly at the site root with no
+// path prefix, so they're matched here by extension instead. Static assets
+// are not secrets (candidate data is never served from public/), and a
+// logged-out visitor still needs to load images on /login.
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  matcher: [
+    '/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff|woff2|ttf|otf|map)$).*)',
+  ],
 }

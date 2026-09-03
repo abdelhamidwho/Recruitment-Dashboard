@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireApiUser } from "@/lib/auth/requireUser";
 
 export async function GET(req: Request) {
+  const auth = await requireApiUser();
+  if (auth instanceof NextResponse) return auth;
+
   const { searchParams } = new URL(req.url);
   const runId = searchParams.get("runId");
 

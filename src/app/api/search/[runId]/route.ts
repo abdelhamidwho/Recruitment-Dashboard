@@ -3,10 +3,14 @@ import { getRunStatus, fetchDatasetItems } from "@/lib/apify";
 import { prisma } from "@/lib/prisma";
 import { scoreCandidate } from "@/lib/scoring";
 import { SearchFilters } from "@/lib/buildBooleanQuery";
+import { requireApiUser } from "@/lib/auth/requireUser";
 
 export async function GET(req: Request, { params }: { params: Promise<{ runId: string }> }) {
+  const auth = await requireApiUser();
+  if (auth instanceof NextResponse) return auth;
+
   const { runId } = await params;
-  
+
   try {
     const searchRun = await prisma.searchRun.findFirst({
       where: { runId },
