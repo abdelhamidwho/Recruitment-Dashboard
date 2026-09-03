@@ -7,14 +7,31 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
-import { ResultsTable } from "./ResultsTable";
+import { ResultsTable, ResultCandidate } from "./ResultsTable";
+
+interface SkillCategory {
+  category: string;
+  skills: string[];
+}
+
+interface RolePreset {
+  id: string;
+  label: string;
+  titles?: string[];
+  seniority?: string[];
+  mustHave?: string[];
+  niceToHave?: string[];
+  exclude?: string[];
+  yearsMin?: number;
+  yearsMax?: number;
+}
 
 export function SearchBuilder({
   skillsTaxonomy,
   rolePresets,
 }: {
-  skillsTaxonomy: any[];
-  rolePresets: any[];
+  skillsTaxonomy: SkillCategory[];
+  rolePresets: RolePreset[];
 }) {
   const [filters, setFilters] = React.useState<Partial<SearchFilters>>({
     titles: [],
@@ -47,14 +64,8 @@ export function SearchBuilder({
     }))
   );
 
-  const presetOptions: Option[] = rolePresets.map((p) => ({
-    value: p.id,
-    label: p.label,
-  }));
-
   const seniorityOptions: Option[] = ["Intern", "Junior", "Mid", "Senior", "Staff", "Lead", "Principal", "Manager", "Head", "Director"].map(s => ({ value: s, label: s }));
   const workModeOptions: Option[] = ["Remote", "Hybrid", "Onsite"].map(s => ({ value: s, label: s }));
-  const companySizeOptions: Option[] = ["1-10", "11-50", "51-200", "201-500", "501-1k", "1k-5k", "5k+"].map(s => ({ value: s, label: s }));
 
   // Auto-update query preview when filters change (if not overridden by user)
   React.useEffect(() => {
@@ -81,7 +92,7 @@ export function SearchBuilder({
     setIsCustom(false);
   };
 
-  const updateFilter = (key: keyof SearchFilters, value: any) => {
+  const updateFilter = <K extends keyof SearchFilters>(key: K, value: SearchFilters[K]) => {
     setFilters((prev) => ({ ...prev, [key]: value }));
   };
 
@@ -93,7 +104,7 @@ export function SearchBuilder({
   }).length;
 
   const [isSearching, setIsSearching] = React.useState(false);
-  const [searchResults, setSearchResults] = React.useState<any[]>([]);
+  const [searchResults, setSearchResults] = React.useState<ResultCandidate[]>([]);
   const [searchStatus, setSearchStatus] = React.useState<string>("");
   const [currentRunId, setCurrentRunId] = React.useState<string>("");
 
@@ -130,9 +141,10 @@ export function SearchBuilder({
         }
       }
       setSearchStatus(`Run finished with status: ${status}`);
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
-      setSearchStatus(`Error: ${err.message}`);
+      const message = err instanceof Error ? err.message : String(err);
+      setSearchStatus(`Error: ${message}`);
     }
     setIsSearching(false);
   };

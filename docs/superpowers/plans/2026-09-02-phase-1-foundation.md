@@ -85,7 +85,7 @@ Read these before starting. They are non-obvious and will cost you hours if miss
 - Create: `tests/lib/buildBooleanQuery.test.ts`
 - Modify: `package.json`
 
-- [ ] **Step 1: Install the test dependencies**
+- [x] **Step 1: Install the test dependencies**
 
 Only two are needed. Phase 1 tests pure logic, so there is no jsdom or React Testing Library.
 
@@ -93,7 +93,7 @@ Only two are needed. Phase 1 tests pure logic, so there is no jsdom or React Tes
 npm install -D vitest vite-tsconfig-paths
 ```
 
-- [ ] **Step 2: Create the Vitest config**
+- [x] **Step 2: Create the Vitest config**
 
 Create `vitest.config.mts`. The `mts` extension is required so Vite loads it as an ES module regardless of the `package.json` type field.
 
@@ -110,7 +110,7 @@ export default defineConfig({
 })
 ```
 
-- [ ] **Step 3: Add the test script**
+- [x] **Step 3: Add the test script**
 
 In `package.json`, add to `"scripts"`:
 
@@ -119,7 +119,7 @@ In `package.json`, add to `"scripts"`:
 "test:watch": "vitest"
 ```
 
-- [ ] **Step 4: Write the failing characterisation test**
+- [x] **Step 4: Write the failing characterisation test**
 
 Create `tests/lib/buildBooleanQuery.test.ts`. This locks in today's behaviour so Phase 3 cannot change it by accident.
 
@@ -152,12 +152,12 @@ describe('buildBooleanQuery', () => {
 })
 ```
 
-- [ ] **Step 5: Run it and verify it passes**
+- [x] **Step 5: Run it and verify it passes**
 
 Run: `npm test`
 Expected: 5 passed. If any fail, the assertion is wrong, not the source — `buildBooleanQuery` is not being changed in this task. Correct the expectation to match actual output and note the difference in the commit message.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add vitest.config.mts tests/lib/buildBooleanQuery.test.ts package.json package-lock.json
@@ -172,7 +172,7 @@ git commit -m "test: add vitest and lock buildBooleanQuery behaviour"
 - Create: `src/lib/normalize/regions.ts`
 - Test: `tests/normalize/regions.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/normalize/regions.test.ts`:
 
@@ -249,12 +249,12 @@ describe('prototype chain hardening', () => {
 })
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `npx vitest run tests/normalize/regions.test.ts`
 Expected: FAIL — "Failed to resolve import" for `@/lib/normalize/regions`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `src/lib/normalize/regions.ts`:
 
@@ -384,12 +384,12 @@ export function regionForCountry(value: string | null | undefined): Region | nul
 export const KNOWN_COUNTRIES: readonly string[] = Object.freeze(Object.keys(COUNTRY_REGIONS))
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `npx vitest run tests/normalize/regions.test.ts`
 Expected: PASS, 10 tests (7 original + 3 prototype chain hardening).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/lib/normalize/regions.ts tests/normalize/regions.test.ts
@@ -404,7 +404,7 @@ git commit -m "feat: add country canonicalisation and region lookup"
 - Create: `src/lib/normalize/location.ts`
 - Test: `tests/normalize/location.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/normalize/location.test.ts`:
 
@@ -524,12 +524,12 @@ describe('normalizeLocation', () => {
 })
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `npx vitest run tests/normalize/location.test.ts`
 Expected: FAIL — cannot resolve `@/lib/normalize/location`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `src/lib/normalize/location.ts`. Note the deliberate design decision documented in the spec: this function never throws, and an unparseable value yields nulls with the raw string preserved, so a person is never lost to a parsing failure.
 
@@ -623,12 +623,12 @@ export function normalizeLocation(raw: string | null | undefined): NormalizedLoc
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `npx vitest run tests/normalize/location.test.ts`
 Expected: PASS, 12 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/lib/normalize/location.ts tests/normalize/location.test.ts
@@ -645,7 +645,7 @@ git commit -m "feat: parse free-text location into city, country and region"
 
 Background: `totalYearsExperience` is frequently absent from scraped payloads, and the current scorer therefore treats such candidates as having zero years and penalises them 10 points. This module computes the real figure from the `experience` array, merging overlapping date ranges so two concurrent roles are not counted twice.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/normalize/experience.test.ts`:
 
@@ -757,12 +757,12 @@ describe('totalYearsOfExperience', () => {
 })
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `npx vitest run tests/normalize/experience.test.ts`
 Expected: FAIL — cannot resolve `@/lib/normalize/experience`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `src/lib/normalize/experience.ts`:
 
@@ -888,12 +888,12 @@ export function totalYearsOfExperience(
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `npx vitest run tests/normalize/experience.test.ts`
 Expected: PASS, 13 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/lib/normalize/experience.ts tests/normalize/experience.test.ts
@@ -908,7 +908,7 @@ git commit -m "fix: skip junk array elements and non-string dates in experience 
 - Create: `src/lib/normalize/education.ts`
 - Test: `tests/normalize/education.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/normalize/education.test.ts`:
 
@@ -1043,12 +1043,12 @@ describe('normalizeEducation', () => {
 })
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `npx vitest run tests/normalize/education.test.ts`
 Expected: FAIL — cannot resolve `@/lib/normalize/education`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `src/lib/normalize/education.ts`:
 
@@ -1202,12 +1202,12 @@ export function normalizeEducation(
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `npx vitest run tests/normalize/education.test.ts`
 Expected: PASS, 15 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/lib/normalize/education.ts tests/normalize/education.test.ts
@@ -1224,7 +1224,7 @@ git commit -m "feat: derive degree level and field of study from education entri
 
 Background: LinkedIn records proficiency as sentences like "Native or bilingual proficiency". `mapToCandidate` in `src/lib/apify.ts` currently reduces each language to its bare name and throws the level away — Task 7 fixes the mapper, and this module interprets what it keeps.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/normalize/languages.test.ts`:
 
@@ -1332,12 +1332,12 @@ describe('normalizeLanguages', () => {
 
 The first six tests (through de-duplication) are written first, as a failing baseline. The next five are hardening cases added after the implementation passes the first six — see Step 5 below. The final test (LANGUAGE_LEVELS frozen) was added in Step 7 below, once `LANGUAGE_LEVELS` was frozen to match the `KNOWN_COUNTRIES` convention in `src/lib/normalize/regions.ts`.
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `npx vitest run tests/normalize/languages.test.ts`
 Expected: FAIL — cannot resolve `@/lib/normalize/languages`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `src/lib/normalize/languages.ts`:
 
@@ -1432,16 +1432,16 @@ export function normalizeLanguages(raw: unknown): NormalizedLanguage[] {
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `npx vitest run tests/normalize/languages.test.ts`
 Expected: PASS, 6 tests.
 
-- [ ] **Step 5: Hardening, verified by execution**
+- [x] **Step 5: Hardening, verified by execution**
 
 Reviews of the sibling `education.ts`/`experience.ts` modules found recurring defects around case-insensitive de-duplication, non-string names, junk array elements, non-array input, and non-string proficiency/level values. Five more tests were added to `tests/normalize/languages.test.ts` (shown in Step 1 above) to check each case explicitly against `normalizeLanguages`. Run: `npx vitest run tests/normalize/languages.test.ts` — expected and actual: PASS, 11 tests. The plan's Step 3 implementation already handled every case correctly (the `entry && typeof entry === 'object'` guard excludes `null`, the `typeof candidate === 'string'` check excludes non-string names, and `levelFor` checks `typeof value !== 'string'`), so no implementation change was needed beyond adding the doc comment on `normalizeLanguages` shown in Step 3.
 
-- [ ] **Step 6: Post-approval follow-ups**
+- [x] **Step 6: Post-approval follow-ups**
 
 Four one-line follow-ups from code review, applied to `src/lib/normalize/languages.ts` and shown inline in Step 3 above:
 
@@ -1452,7 +1452,7 @@ Four one-line follow-ups from code review, applied to `src/lib/normalize/languag
 
 Run: `npx vitest run tests/normalize/languages.test.ts` — PASS, 12 tests. Run: `npm test` — PASS, 67 tests (66 prior + 1 new freeze test).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/lib/normalize/languages.ts tests/normalize/languages.test.ts
@@ -1477,7 +1477,7 @@ git commit -m "feat: normalise languages with proficiency levels"
 
 As built, this task also closed a class of bug found in every one of the five prior normalisation modules: a guard of the shape `if (!x || x.length === 0)` (or `x || []`) survives `null`/`undefined` but throws when handed a truthy *non-array*, non-string value (a number, a plain object, etc.) — real input from an external scraper with no schema guarantee. `normalizeLocation`, `totalYearsOfExperience`, and `normalizeEducation` all had this defect; `normalizeIndustry` and `mapToCandidate` were written defensively from the start. All are now hardened and covered by tests that exercise them with garbage input types directly (see the "never throws" tests in `tests/normalize/industry.test.ts`, `tests/lib/apify-mapper.test.ts`, and `tests/normalize/index.test.ts`).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/normalize/industry.test.ts`:
 
@@ -1706,12 +1706,12 @@ describe('normalizeProfile', () => {
 })
 ```
 
-- [ ] **Step 2: Run them to verify they fail**
+- [x] **Step 2: Run them to verify they fail**
 
 Run: `npx vitest run tests/normalize/industry.test.ts tests/lib/apify-mapper.test.ts`
 Expected: FAIL — `@/lib/normalize/industry` unresolved, and `mapToCandidate` is not exported from `src/lib/apify.ts`.
 
-- [ ] **Step 3: Create the industry data file**
+- [x] **Step 3: Create the industry data file**
 
 Create `src/data/industries.json`:
 
@@ -1782,7 +1782,7 @@ Create `src/data/industries.json`:
 }
 ```
 
-- [ ] **Step 4: Write the industry implementation**
+- [x] **Step 4: Write the industry implementation**
 
 Create `src/lib/normalize/industry.ts`. Parameters are typed `unknown` (not `string | null | undefined`) and lookups go through `Object.create(null)` tables — following the convention in `src/lib/normalize/regions.ts` — so a scraper-controlled key like `'constructor'` or `'__proto__'` cannot resolve to an inherited value off `Object.prototype`. `INDUSTRIES` is frozen with `Object.freeze` and typed `readonly string[]`, matching `LANGUAGE_LEVELS` in `languages.ts` and `KNOWN_COUNTRIES` in `regions.ts` — Phase 2 UI code will import this list to populate a dropdown, and an unfrozen shared array is one `.sort()` or `.push()` away from being corrupted for every other importer:
 
@@ -1847,7 +1847,7 @@ export function normalizeIndustry(
 export const INDUSTRIES: readonly string[] = Object.freeze(Array.from(CANONICAL).sort())
 ```
 
-- [ ] **Step 5: Fix the mapper**
+- [x] **Step 5: Fix the mapper**
 
 In `src/lib/apify.ts`, three changes.
 
@@ -1933,7 +1933,7 @@ Third, the same "throws on truthy non-array" defect was found by execution in th
 
 `mapToCandidate`'s `languages` field is also routed through the same `asArray` guard as `skills`/`experience`/`education`/`certifications`, rather than the plan's original `rawItem.languages || []` — a non-array `languages` didn't crash only because `normalizeLanguages` happened to guard independently downstream, which is that module's defensiveness, not a guarantee `apify.ts` itself made for a field the whole point of this task was to stop discarding.
 
-- [ ] **Step 6: Write the composed normaliser**
+- [x] **Step 6: Write the composed normaliser**
 
 Create `src/lib/normalize/index.ts`. `candidate` is treated as untrusted throughout — every field it reads may be missing, `null`, or the wrong type, since it may come straight from `mapToCandidate`'s `any`-typed input:
 
@@ -1999,17 +1999,17 @@ export function normalizeProfile(candidate: Candidate, now: Date = new Date()): 
 }
 ```
 
-- [ ] **Step 7: Run the tests to verify they pass**
+- [x] **Step 7: Run the tests to verify they pass**
 
 Run: `npm test`
 Expected: PASS across all files — 5 buildBooleanQuery, 10 regions, 12 location, 13 experience, 15 education, 12 languages, 7 industry, 10 mapper, 4 normalizeProfile (`tests/normalize/index.test.ts`) — 88 tests total. (The regions/location/experience/education/languages counts are higher than the 7/7/8/7/6 originally estimated in Tasks 2–6, because those modules' own hardening tests were added as those tasks were actually built; 67 of the 88 were already passing before this task.)
 
-- [ ] **Step 8: Verify the app still compiles**
+- [x] **Step 8: Verify the app still compiles**
 
 Run: `npx tsc --noEmit`
 Expected: no errors. The `Candidate.languages` type widened from `string[]` to `RawLanguage[]`; if `src/app/api/search/[runId]/route.ts` complains, leave it — Task 18 rewrites that file. If it blocks you, cast at the call site with `JSON.stringify(c.languages ?? [])`, which is already what that code does. (As built, `route.ts` already does exactly that — `JSON.stringify(c.languages || [])` — so no errors were produced anywhere.)
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add src/lib/normalize src/data/industries.json src/lib/apify.ts tests/normalize tests/lib/apify-mapper.test.ts
@@ -2027,12 +2027,12 @@ git commit -m "feat: add normalisation layer and stop the mapper discarding prof
 
 This task adopts Prisma Migrate on the existing `dev.db` without resetting it. Do this **before** editing the schema.
 
-- [ ] **Step 1: Confirm there are no migrations yet and the database exists**
+- [x] **Step 1: Confirm there are no migrations yet and the database exists**
 
 Run: `ls prisma/ && ls -la dev.db`
 Expected: `schema.prisma` only in `prisma/`, and `dev.db` present. If `prisma/migrations/` already exists, stop — this task has already been done.
 
-- [ ] **Step 2: Generate the baseline SQL from the current schema**
+- [x] **Step 2: Generate the baseline SQL from the current schema**
 
 ```bash
 mkdir -p prisma/migrations/0_init
@@ -2041,12 +2041,12 @@ npx prisma migrate diff --from-empty --to-schema prisma/schema.prisma --script >
 
 If that errors with an unknown option, this Prisma build uses the older flag name — run it as `--to-schema-datamodel prisma/schema.prisma` instead. Check the generated file is non-empty either way; a silent empty file means the flag was accepted but matched nothing.
 
-- [ ] **Step 3: Verify the baseline describes the current tables**
+- [x] **Step 3: Verify the baseline describes the current tables**
 
 Run: `grep -c "CREATE TABLE" prisma/migrations/0_init/migration.sql`
 Expected: `6` — SavedSearch, SearchRun, Candidate, Shortlist, ShortlistItem, Note.
 
-- [ ] **Step 3b: Create the migration lock file**
+- [x] **Step 3b: Create the migration lock file**
 
 `migrate diff` does not generate `migration_lock.toml`, but Prisma needs it to know which connector the migrations directory targets. Without it, `prisma migrate diff --from-config-datasource --to-migrations ./prisma/migrations` fails with "Could not determine the connector from the migrations directory", so you cannot verify the baseline is honest.
 
@@ -2054,7 +2054,7 @@ Expected: `6` — SavedSearch, SearchRun, Candidate, Shortlist, ShortlistItem, N
 printf '# Please do not edit this file manually\n# It should be added in your version-control system (e.g., Git)\nprovider = "sqlite"\n' > prisma/migrations/migration_lock.toml
 ```
 
-- [ ] **Step 3c: Prove the baseline matches the real database**
+- [x] **Step 3c: Prove the baseline matches the real database**
 
 This is the check that makes the whole task trustworthy — it compares the live database against the migrations directory.
 
@@ -2064,7 +2064,7 @@ npx prisma migrate diff --from-config-datasource --to-migrations ./prisma/migrat
 
 Expected: `No difference detected.` Anything else means the baseline does not describe the database that exists, and Task 10 must not proceed until it does.
 
-- [ ] **Step 4: Mark it as already applied**
+- [x] **Step 4: Mark it as already applied**
 
 This writes to `_prisma_migrations` only. It runs no SQL against your tables, so no data is touched.
 
@@ -2072,12 +2072,12 @@ This writes to `_prisma_migrations` only. It runs no SQL against your tables, so
 npx prisma migrate resolve --applied 0_init
 ```
 
-- [ ] **Step 5: Confirm the database is now in a clean migration state**
+- [x] **Step 5: Confirm the database is now in a clean migration state**
 
 Run: `npx prisma migrate status`
 Expected: "Database schema is up to date!" with 1 migration found.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add prisma/migrations
@@ -2091,7 +2091,7 @@ git commit -m "chore: baseline existing sqlite database for prisma migrate"
 **Files:**
 - Modify: `prisma/schema.prisma`
 
-- [ ] **Step 1: Replace the model section of the schema**
+- [x] **Step 1: Replace the model section of the schema**
 
 Open `prisma/schema.prisma`. Keep the `datasource` and `generator` blocks exactly as they are — the missing `url` is correct for Prisma 7, which reads it from `prisma.config.ts`. Replace everything after the generator block with:
 
@@ -2359,12 +2359,12 @@ model SavedSearch {
 
 The old `Candidate`, `Shortlist` and `ShortlistItem` models are gone. `Shortlist` is superseded by `Watchlist` and `Job`; it had no API routes or UI, so nothing depends on it.
 
-- [ ] **Step 2: Validate the schema before generating a migration**
+- [x] **Step 2: Validate the schema before generating a migration**
 
 Run: `npx prisma validate`
 Expected: "The schema at prisma/schema.prisma is valid."
 
-- [ ] **Step 3: Commit the schema on its own**
+- [x] **Step 3: Commit the schema on its own**
 
 Committing separately from the migration makes the next task's hand-edit easy to review.
 
@@ -2381,7 +2381,7 @@ git commit -m "feat: add Person, User, Job and collaboration models to the schem
 - Create: `prisma/migrations/<timestamp>_phase1_foundation/migration.sql`
 - Test: `tests/migration/candidate-to-person.test.ts`
 
-- [ ] **Step 1: Write the failing migration test**
+- [x] **Step 1: Write the failing migration test**
 
 This test builds an old-schema database from the `0_init` baseline, inserts duplicate candidates by hand, applies the new migration SQL, and asserts nobody was lost and duplicates collapsed. It uses `better-sqlite3` directly — already a project dependency — so it needs no Prisma client and no `dev.db`.
 
@@ -2482,12 +2482,12 @@ describe('candidate to person migration', () => {
 })
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `npx vitest run tests/migration/candidate-to-person.test.ts`
 Expected: FAIL — "no migration directory matching \"phase1_foundation\"".
 
-- [ ] **Step 3: Generate the migration without applying it**
+- [x] **Step 3: Generate the migration without applying it**
 
 `--create-only` writes the SQL and stops, so you can add the data copy before anything runs.
 
@@ -2520,7 +2520,7 @@ mkdir -p prisma/migrations/20260902124248_phase1_foundation
 
 The directory actually created was `prisma/migrations/20260902124248_phase1_foundation/`.
 
-- [ ] **Step 4: Insert the data copy into the generated SQL**
+- [x] **Step 4: Insert the data copy into the generated SQL**
 
 Open the new `prisma/migrations/<timestamp>_phase1_foundation/migration.sql`. Prisma will have generated `CREATE TABLE` statements for the new models and `DROP TABLE "Candidate"` (plus drops for `Shortlist` and `ShortlistItem`).
 
@@ -2588,12 +2588,12 @@ The normalised columns (`city`, `country`, `region`, `industry`, `highestDegree`
 
 Nothing was removed from the generated SQL and no pragma was touched; the only edit was relocating the `Candidate` drop from the top to the bottom and adding the two inserts above it.
 
-- [ ] **Step 5: Run the migration test to verify it passes**
+- [x] **Step 5: Run the migration test to verify it passes**
 
 Run: `npx vitest run tests/migration/candidate-to-person.test.ts`
 Expected: PASS, 6 tests. If `Person` insert fails on a NOT NULL column, your generated `CREATE TABLE` has a column this INSERT omits — add it to both the column list and the SELECT.
 
-- [ ] **Step 6: Apply the migration to the real database**
+- [x] **Step 6: Apply the migration to the real database**
 
 ```bash
 cp dev.db dev.db.pre-phase1.bak
@@ -2603,7 +2603,7 @@ npx prisma generate
 
 Expected: "Your database is now in sync with your schema", then "Generated Prisma Client". The `.bak` copy is your escape hatch and is git-ignored by the `*.db` rule — but `dev.db.pre-phase1.bak` does not match `*.db`, so verify with `git status` that it is not staged, and add it to `.gitignore` if it appears.
 
-- [ ] **Step 7: Verify the real data survived**
+- [x] **Step 7: Verify the real data survived**
 
 ```bash
 node -e "const D=require('better-sqlite3');const db=new D('dev.db');console.log('people',db.prepare('SELECT COUNT(*) c FROM Person').get());console.log('appearances',db.prepare('SELECT COUNT(*) c FROM SearchRunPerson').get());console.log('users',db.prepare('SELECT COUNT(*) c FROM User').get())"
@@ -2626,7 +2626,7 @@ tables Favorite, Job, JobCandidate, Note, Person, ProfileView, SavedSearch, Sear
 
 `npx tsc --noEmit` now reports four errors, all in the two files Task 18 deletes and rewrites (`src/app/api/export/route.ts`, `src/app/api/search/[runId]/route.ts`), because `prisma.candidate` and `include: { candidates: true }` no longer exist. They are left alone deliberately.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add prisma/migrations tests/migration
@@ -2970,7 +2970,7 @@ git commit -m "feat: enable WAL, reuse the prisma client, and backfill normalise
 - Create: `src/lib/auth/password.ts`
 - Test: `tests/auth/password.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/auth/password.test.ts`:
 
@@ -3049,12 +3049,12 @@ describe('password hashing', () => {
 })
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `npx vitest run tests/auth/password.test.ts`
 Expected: FAIL — cannot resolve `@/lib/auth/password`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `src/lib/auth/password.ts`. scrypt comes from `node:crypto`, so there is no new dependency, and it is memory-hard which is what you want for stored passwords. `util.promisify`'s typings resolve `scrypt`'s overloads incorrectly, so the promisified function's type is asserted explicitly. An explicit upper bound on the stored `N`/`r`/`p` parameters is belt-and-braces on top of Node's own `maxmem` default, which is the first line of defence against an absurd stored cost. `verifyPassword` also rejects a stored key whose decoded length doesn't match what `hashPassword` produces, rather than deriving against whatever length a tampered row happens to carry.
 
@@ -3182,12 +3182,12 @@ export async function verifyPassword(password: string, stored: string): Promise<
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `npx vitest run tests/auth/password.test.ts`
 Expected: PASS, 11 tests. Each hash takes roughly 100ms, so the file takes a second or two.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/lib/auth/password.ts tests/auth/password.test.ts
@@ -3206,7 +3206,7 @@ git commit -m "feat: add scrypt password hashing"
 
 The cookie carries a random token; the database stores only its SHA-256. A leaked database therefore does not hand an attacker usable sessions.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/auth/token.test.ts`:
 
@@ -3306,12 +3306,12 @@ describe('auth constants', () => {
 })
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `npx vitest run tests/auth/token.test.ts`
 Expected: FAIL — cannot resolve `@/lib/auth/token`.
 
-- [ ] **Step 3: Write the constants**
+- [x] **Step 3: Write the constants**
 
 Create `src/lib/auth/constants.ts`. Each exported list is wrapped in `Object.freeze` so it can't be mutated in place by whatever imports it.
 
@@ -3343,7 +3343,7 @@ export type Stage = (typeof STAGES)[number]
 export const PUBLIC_PATHS: readonly string[] = Object.freeze(['/login', '/api/auth/login'])
 ```
 
-- [ ] **Step 4: Write the token module**
+- [x] **Step 4: Write the token module**
 
 Create `src/lib/auth/token.ts`:
 
@@ -3393,12 +3393,12 @@ export function isExpired(expiresAt: Date, now: Date = new Date()): boolean {
 }
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `npx vitest run tests/auth/token.test.ts tests/auth/constants.test.ts`
 Expected: PASS, 8 tests in `token.test.ts` and 3 in `constants.test.ts`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/lib/auth/constants.ts src/lib/auth/token.ts tests/auth/token.test.ts tests/auth/constants.test.ts
@@ -3415,7 +3415,7 @@ git commit -m "feat: add session token generation and expiry helpers"
 
 These are thin database wrappers over the pure helpers just tested, so they carry no logic of their own to unit test. They are exercised end to end in Task 17.
 
-- [ ] **Step 1: Write the session module**
+- [x] **Step 1: Write the session module**
 
 Create `src/lib/auth/session.ts`:
 
@@ -3486,7 +3486,7 @@ export async function readSessionUser(): Promise<SessionUser | null> {
 }
 ```
 
-- [ ] **Step 2: Write the guard helpers**
+- [x] **Step 2: Write the guard helpers**
 
 Create `src/lib/auth/requireUser.ts`:
 
@@ -3518,12 +3518,12 @@ export async function requireAdmin(): Promise<SessionUser> {
 export const UNAUTHORIZED = { error: 'Not signed in' }
 ```
 
-- [ ] **Step 3: Verify it compiles**
+- [x] **Step 3: Verify it compiles**
 
 Run: `npx tsc --noEmit`
 Expected: no errors from `src/lib/auth/`. Errors in `src/app/api/search/[runId]/route.ts` about `candidate` no longer existing on the Prisma client are expected — Task 18 fixes that file.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/lib/auth/session.ts src/lib/auth/requireUser.ts
@@ -3538,7 +3538,7 @@ git commit -m "feat: add database-backed sessions and auth guards"
 - Create: `prisma/seed-admin.ts`
 - Modify: `.env`
 
-- [ ] **Step 1: Add the seed variables**
+- [x] **Step 1: Add the seed variables**
 
 Append to `.env`:
 
@@ -3550,7 +3550,7 @@ SEED_ADMIN_NAME="Abdelhamid Ramadan"
 
 `.env` is git-ignored by the existing `.env*` rule, so this password is not committed. It is a first-login password only: the seeded account is created with `mustChangePassword: true`. The literal `ChangeMe-Phase1` above is a placeholder for this document only — the actual implementation generated a random bootstrap password (e.g. via `node -e "console.log(require('crypto').randomBytes(12).toString('base64url'))"`) and wrote that into `.env` instead, so no predictable credential ever exists even transiently.
 
-- [ ] **Step 2: Write the seed script**
+- [x] **Step 2: Write the seed script**
 
 Create `prisma/seed-admin.ts`:
 
@@ -3600,7 +3600,7 @@ main()
   .finally(() => prisma.$disconnect())
 ```
 
-- [ ] **Step 3: Run it and verify the admin exists**
+- [x] **Step 3: Run it and verify the admin exists**
 
 ```bash
 npm run seed:admin
@@ -3609,12 +3609,12 @@ node -e "const D=require('better-sqlite3');const db=new D('dev.db');console.log(
 
 Expected: `created admin ...`, then one row with `role: 'ADMIN'` and `mustChangePassword: 1`.
 
-- [ ] **Step 4: Verify it is idempotent**
+- [x] **Step 4: Verify it is idempotent**
 
 Run: `npm run seed:admin`
 Expected: `admin ... already exists, nothing to do`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add prisma/seed-admin.ts
@@ -4277,7 +4277,7 @@ git commit -m "feat: add admin user management"
 
 This task fixes the mock-run-id collision described in the reference notes, and makes a re-found profile update the existing `Person` instead of creating a duplicate.
 
-- [ ] **Step 1: Require a user when starting a search**
+- [x] **Step 1: Require a user when starting a search**
 
 Replace `src/app/api/search/route.ts`:
 
@@ -4318,7 +4318,7 @@ export async function POST(req: Request) {
 }
 ```
 
-- [ ] **Step 2: Replace the polling route, keyed on our own id**
+- [x] **Step 2: Replace the polling route, keyed on our own id**
 
 ```bash
 git rm -r "src/app/api/search/[runId]"
@@ -4476,7 +4476,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ searchR
 }
 ```
 
-- [ ] **Step 3: Update export and taxonomy**
+- [x] **Step 3: Update export and taxonomy**
 
 Replace `src/app/api/export/route.ts`. Same substitution: `requireApiUser()` in place of the draft's plain `getUser()` check, matching what was already in this file from the auth-bypass fix.
 
@@ -4554,7 +4554,7 @@ export async function GET() {
 
 If the existing file's response shape differs, keep the existing shape and only add the auth check — `SearchBuilder` depends on it.
 
-- [ ] **Step 4: Point the client at the new key**
+- [x] **Step 4: Point the client at the new key**
 
 In `src/components/SearchBuilder.tsx`, inside `handleSearch`, replace the four lines from `const runId = data.runId;` through the `fetch` call:
 
@@ -4573,7 +4573,7 @@ Also find the export link or button that passes `runId` and change its query par
 grep -rn "api/export" src/
 ```
 
-- [ ] **Step 5: Verify the whole pipeline**
+- [x] **Step 5: Verify the whole pipeline**
 
 Run the full test suite and typecheck first:
 
@@ -4606,11 +4606,11 @@ node -e "const D=require('better-sqlite3');const db=new D('dev.db');console.log(
 
 Expected: `runs` increased by 2, `people` unchanged from before the two searches, `appearances` increased.
 
-- [ ] **Step 6: Drive it in a browser**
+- [x] **Step 6: Drive it in a browser**
 
 Open `http://localhost:3000`, sign in, apply the Backend Developer preset, and click Search LinkedIn. The results table must populate as before. This is the confirmation that Phase 1 changed the foundations without breaking the existing screen.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/app/api src/components/SearchBuilder.tsx
@@ -4625,7 +4625,7 @@ git commit -m "feat: key searches on SearchRun.id and deduplicate people on upse
 - Modify: `docs/superpowers/plans/2026-09-02-phase-1-foundation.md`
 - Modify: `README.md`
 
-- [ ] **Step 1: Run everything one more time**
+- [x] **Step 1: Run everything one more time**
 
 ```bash
 npm test
@@ -4636,7 +4636,7 @@ npx prisma migrate status
 
 Expected: tests pass, no type errors, lint clean, "Database schema is up to date!".
 
-- [ ] **Step 2: Document how to run it on the shared server**
+- [x] **Step 2: Document how to run it on the shared server**
 
 Add to `README.md`:
 
@@ -4655,16 +4655,30 @@ user. The database is a single SQLite file in WAL mode — back it up by copying
 that file while the app is stopped.
 ```
 
-- [ ] **Step 3: Tick every checkbox in this plan and commit**
+- [x] **Step 3: Tick every checkbox in this plan and commit**
 
 ```bash
 git add README.md docs/superpowers/plans
 git commit -m "docs: record phase 1 completion and shared-server setup"
 ```
 
-- [ ] **Step 4: Report what Phase 2 now rests on**
+- [x] **Step 4: Report what Phase 2 now rests on**
 
 Phase 2 (the filter rail and facet counts) can query `Person.country`, `Person.region`, `Person.city`, `Person.industry`, `Person.highestDegree`, `Person.fieldsOfStudy`, `Person.languages` and `Person.totalYearsExperience` directly with `groupBy` for counts — the indexes on `country`, `region`, `industry` and `highestDegree` exist for exactly that. `SearchRunPerson.wasKnownBefore` is what Phase 5 renders as "seen in N earlier searches".
+
+Two caveats for whoever builds that facet logic:
+
+- Facet aggregation must group case-insensitively. SQLite's `groupBy` in Prisma
+  does a byte-for-byte comparison on these text columns, so `"Egypt"` and
+  `"egypt"` (or any other casing drift the normalisers didn't already collapse)
+  would otherwise appear as two separate facet values with split counts instead
+  of one bucket.
+- `Person.fieldsOfStudy` is stored as a JSON-encoded string (an array of
+  strings), not a scalar column, so it cannot be faceted with a SQL `groupBy`
+  at all — SQLite would group by the whole serialized string, not by each
+  field of study inside it. Facet counts for fields of study have to be
+  computed in application code: pull the rows, `JSON.parse` each
+  `fieldsOfStudy`, and tally the parsed values yourself.
 
 ---
 

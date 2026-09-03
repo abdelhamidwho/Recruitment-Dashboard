@@ -13,13 +13,43 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SearchFilters } from "@/lib/buildBooleanQuery";
 
-export function ResultsTable({ candidates, filters }: { candidates: any[], filters: Partial<SearchFilters> }) {
+export interface ResultCandidate {
+  id: string;
+  externalId?: string | null;
+  fullName: string;
+  headline?: string | null;
+  currentTitle?: string | null;
+  currentCompany?: string | null;
+  location?: string | null;
+  city?: string | null;
+  country?: string | null;
+  region?: string | null;
+  industry?: string | null;
+  highestDegree?: string | null;
+  fieldsOfStudy?: string | null;
+  profileUrl: string;
+  avatarUrl?: string | null;
+  summary?: string | null;
+  skills?: string | null;
+  experience?: string | null;
+  education?: string | null;
+  languages?: string | null;
+  certifications?: string | null;
+  totalYearsExperience?: number | null;
+  score: number;
+  scoreBreakdown?: string | null;
+  wasKnownBefore?: boolean;
+  // Sorting below indexes into this object by an arbitrary column key.
+  [key: string]: string | number | boolean | null | undefined;
+}
+
+export function ResultsTable({ candidates, filters }: { candidates: ResultCandidate[], filters: Partial<SearchFilters> }) {
   const [sortCol, setSortCol] = useState<string>("score");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   const sortedCandidates = [...candidates].sort((a, b) => {
-    let valA = a[sortCol];
-    let valB = b[sortCol];
+    let valA = a[sortCol] ?? "";
+    let valB = b[sortCol] ?? "";
     if (sortCol === "score") {
       valA = a.score || 0;
       valB = b.score || 0;

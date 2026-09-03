@@ -63,12 +63,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ searchR
     if (searchRun.runId) {
       try {
         status = await getRunStatus(searchRun.runId);
-      } catch (error: any) {
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
         await prisma.searchRun.update({
           where: { id: searchRun.id },
-          data: { status: "FAILED", failureReason: error.message },
+          data: { status: "FAILED", failureReason: message },
         });
-        return NextResponse.json({ status: "FAILED", error: error.message }, { status: 502 });
+        return NextResponse.json({ status: "FAILED", error: message }, { status: 502 });
       }
     }
 
@@ -140,7 +141,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ searchR
     }));
 
     return NextResponse.json({ status, itemCount: candidates.length, candidates });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

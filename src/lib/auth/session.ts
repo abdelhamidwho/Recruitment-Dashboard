@@ -3,6 +3,18 @@ import { prisma } from '@/lib/prisma'
 import { SESSION_COOKIE, SESSION_TTL_MS } from './constants'
 import { generateSessionToken, hashSessionToken, isExpired, sessionExpiry } from './token'
 
+// The session cookie's `Secure` flag must not be derived from NODE_ENV: this app's
+// deployment target is a single shared server on a company LAN that may well be
+// plain HTTP. `NODE_ENV=production` over HTTP would set `Secure` and browsers would
+// silently refuse to store or send the cookie (login appears to work, no session
+// persists). `NODE_ENV` unset over a real HTTPS deployment would omit `Secure` and
+// leak the session token in cleartext. So this is an explicit, separate decision,
+// defaulting to the safe choice (secure) so that running insecurely requires
+// deliberately opting out via SESSION_COOKIE_SECURE=false.
+function sessionCookieSecure(): boolean {
+  return process.env.SESSION_COOKIE_SECURE !== 'false'
+}
+
 export async function createSession(userId: string): Promise<void> {
   const token = generateSessionToken()
   const expiresAt = sessionExpiry()
@@ -15,7 +27,7 @@ export async function createSession(userId: string): Promise<void> {
   jar.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    secure: sessionCookieSecure(),
     path: '/',
     maxAge: Math.floor(SESSION_TTL_MS / 1000),
   })

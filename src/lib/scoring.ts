@@ -3,7 +3,7 @@ import { SearchFilters } from "./buildBooleanQuery";
 
 export function scoreCandidate(candidate: Candidate, filters: Partial<SearchFilters>) {
   let score = 0;
-  let breakdown: string[] = [];
+  const breakdown: string[] = [];
 
   // Must-have skills (Weight: 5)
   const mustHave = filters.mustHave || [];
