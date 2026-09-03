@@ -4045,7 +4045,7 @@ The corrected design:
 - Create: `src/app/admin/users/actions.ts`
 - Create: `src/app/admin/users/form.tsx`
 
-- [ ] **Step 1: Write the admin actions**
+- [x] **Step 1: Write the admin actions**
 
 Create `src/app/admin/users/actions.ts`:
 
@@ -4125,7 +4125,7 @@ export async function setActive(formData: FormData): Promise<void> {
 
 `resetPassword` writes the temporary password to the server console rather than the page, so it is not left sitting in a browser tab. The admin reads it from the terminal running the app and passes it on.
 
-- [ ] **Step 2: Write the create form**
+- [x] **Step 2: Write the create form**
 
 Create `src/app/admin/users/form.tsx`:
 
@@ -4179,7 +4179,7 @@ export function CreateUserForm() {
 }
 ```
 
-- [ ] **Step 3: Write the admin page**
+- [x] **Step 3: Write the admin page**
 
 Create `src/app/admin/users/page.tsx`:
 
@@ -4250,11 +4250,13 @@ export default async function UsersPage() {
 }
 ```
 
-- [ ] **Step 4: Verify it by hand**
+- [x] **Step 4: Verify it by hand**
 
 With the dev server running and signed in as the admin, open `http://localhost:3000/admin/users`. Create a recruiter, note the temporary password shown, sign out, and sign in as that recruiter. Confirm you are sent to `/account/password`, and that visiting `/admin/users` as that recruiter redirects you to `/`.
 
-- [ ] **Step 5: Commit**
+Verified end to end: the admin reached `/admin/users` (200, seeded admin listed, no Disable button on their own row), created a recruiter through the form and captured the one-time temporary password from the page, confirmed the new `User` row (`RECRUITER`, `mustChangePassword` 1, `isActive` 1, `scrypt$...` hash), signed in as the recruiter and was sent to `/account/password`. A request to `/admin/users` while the recruiter still had `mustChangePassword` set came back `307` to `/`; after clearing that gate, the same request as the (non-admin) recruiter still came back `307`, this time to `/` — never served the page either way. The admin then disabled the recruiter from the table; the recruiter's prior session cookie stopped working against `/admin/users` (`307` to `/login`) and the `Session` table shows only the admin's own row.
+
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/app/admin
