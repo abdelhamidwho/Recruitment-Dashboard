@@ -68,6 +68,49 @@ or multi-region deployment story here — one process, one database file.
 | `APIFY_ACTOR_ID` | The Apify actor to run, required when `APIFY_MOCK=false`. No actor is chosen yet in this codebase — `src/lib/apify.ts`'s `buildActorInput()`/`mapToCandidate()` are a provisional, unverified mapping for a generic LinkedIn scraper actor. Run `npm run apify:probe` against the actor you choose to see its real input schema and dataset shape before wiring it up for real. |
 | `APIFY_ACTOR_INPUT_VERIFIED` | Must be set to `true` before a live (non-mock) Apify run is allowed. This is a deliberate safety gate: `buildActorInput()` is a guess, not a confirmed mapping, and a malformed request to a real actor still gets billed. Set this only after checking `buildActorInput()`/`mapToCandidate()` against `npm run apify:probe` output for your chosen actor. |
 | `SESSION_COOKIE_SECURE` | Controls the `Secure` flag on the session cookie. Defaults to secure (any value other than the literal string `false` counts as secure) because that is the safe choice for an HTTPS deployment. If this shared server is plain HTTP rather than TLS, set this to `false` — otherwise browsers silently refuse to store or send the cookie and login will appear to succeed while no session persists. Setting it to `false` sends the session token in cleartext on the LAN, so prefer adding TLS to the server instead if at all possible. |
+| `GITHUB_TOKEN` | Optional. A GitHub personal access token used only to raise the GitHub candidate source's rate limit (unauthenticated: 10 requests/min on search, 60/hour on the per-user lookups that enrich each hit; with a token: 30/min search, 5000/hour core, per GitHub's documented limits). The GitHub source works with no token at all, just at the lower limit. Never required. |
+
+## Candidate sources
+
+The search screen lets you choose which source a search runs against, via the
+**Source** control above the search button (defaults to **GitHub**):
+
+- **GitHub** (`src/lib/sources/github.ts`) queries the public GitHub REST API
+  (`GET /search/users`, then one `GET /users/{login}` per hit to enrich it) —
+  no credentials required, works out of the box. It executes **synchronously**:
+  results come back and are stored within the same `POST /api/search` request,
+  so the very first poll to `GET /api/search/[searchRunId]` already returns
+  `SUCCEEDED` with candidates.
+  - **Can provide:** name, avatar, bio (used as headline/summary), company,
+    location, profile URL.
+  - **Cannot provide** (and never guesses at): current job title, industry,
+    skills list, employment history, education, spoken languages,
+    certifications, or years of experience — GitHub has none of this data.
+    Scoring treats a missing years-of-experience figure as neutral (neither a
+    bonus nor a penalty) rather than as zero.
+  - **Filters it cannot act on:** years of experience (min/max), work mode,
+    company size, industry, education, spoken languages, certifications, and
+    target/excluded companies. When one of these is set, the search screen
+    shows a note (e.g. *"GitHub can't filter on work mode — this will be
+    ignored for this search."*) naming exactly which filters will be ignored,
+    rather than silently dropping them.
+  - Only the first location filter is used (GitHub's query qualifiers AND
+    together, so multiple `location:` terms would require a single user to
+    match all of them at once — not what "any of these locations" means).
+- **LinkedIn (Apify)** (`src/lib/apify.ts`) is the pre-existing scraper
+  integration — see "Wiring up a real Apify actor" below. It executes
+  **asynchronously**: `POST /api/search` starts an Apify run and the client
+  polls `GET /api/search/[searchRunId]` until it reports `SUCCEEDED`, at which
+  point the dataset is fetched and stored. With `APIFY_MOCK=true` (the
+  development default) it returns the two mock profiles in
+  `src/data/mockCandidates.json` without calling Apify at all.
+
+Every candidate, regardless of source, is upserted onto a `Person` row keyed on
+`profileUrl` (see `src/lib/profileStorage.ts`, shared by both source paths so
+dedup behaves identically no matter which source produced the row) and tagged
+with `Person.source` / `SearchRun.source`. The results table shows each row's
+source and flags a person as "Known before" when they already existed from an
+earlier search — including one from a different source.
 
 ### Maintenance scripts
 

@@ -8,6 +8,34 @@ import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
 import { ResultsTable, ResultCandidate } from "./ResultsTable";
+import { listSources } from "@/lib/sources";
+
+/**
+ * Source picker options. Combines the registered synchronous sources
+ * (currently just GitHub) with the Apify/LinkedIn source, which is
+ * deliberately not in the registry (see src/lib/sources/index.ts) since it
+ * owns its own async run/poll lifecycle predating this adapter contract.
+ * Kept here rather than fetched from an API since it's static, small, and
+ * this is the only place in the UI that needs it.
+ */
+const SOURCE_OPTIONS: { id: string; label: string; unsupportedFilterFields?: (keyof SearchFilters)[] }[] = [
+  ...listSources().map((s) => ({ id: s.id, label: s.label, unsupportedFilterFields: s.unsupportedFilterFields })),
+  { id: "apify", label: "LinkedIn (Apify)" },
+];
+
+/** Human-readable labels for the filter keys named in unsupportedFilterFields. */
+const FILTER_LABELS: Record<string, string> = {
+  yearsMin: "years of experience",
+  yearsMax: "years of experience",
+  workMode: "work mode",
+  companySize: "company size",
+  industry: "industry",
+  education: "education",
+  languages: "spoken languages",
+  certifications: "certifications",
+  targetCompanies: "target companies",
+  excludedCompanies: "excluded companies",
+};
 
 interface SkillCategory {
   category: string;
@@ -54,6 +82,30 @@ export function SearchBuilder({
 
   const [customQuery, setCustomQuery] = React.useState<string>("");
   const [isCustom, setIsCustom] = React.useState(false);
+  // Defaults to GitHub: it works with no setup (just a lower rate limit
+  // without a token), whereas Apify/LinkedIn is blocked until a real actor
+  // is chosen and verified.
+  const [source, setSource] = React.useState<string>("github");
+
+  const selectedSource = SOURCE_OPTIONS.find((s) => s.id === source);
+  // Filters the user has actually set that the chosen source cannot act on
+  // at all — surfaced near the search button so a filter isn't silently
+  // dropped without the user knowing.
+  const unsupportedFilterNote = React.useMemo(() => {
+    const unsupported = selectedSource?.unsupportedFilterFields || [];
+    const activeUnsupported = unsupported.filter((key) => {
+      const value = (filters as Record<string, unknown>)[key];
+      if (Array.isArray(value)) return value.length > 0;
+      if (key === "yearsMin") return (value as number) > 0;
+      if (key === "yearsMax") return (value as number) < 20;
+      return Boolean(value);
+    });
+    if (activeUnsupported.length === 0) return "";
+    const labels = Array.from(new Set(activeUnsupported.map((k) => FILTER_LABELS[k] || k)));
+    return `${selectedSource?.label} can't filter on ${labels.join(", ")} — ${
+      labels.length > 1 ? "these will" : "this will"
+    } be ignored for this search.`;
+  }, [selectedSource, filters]);
 
   // Generate options for MultiSelect
   const skillOptions: Option[] = skillsTaxonomy.flatMap((cat) =>
@@ -127,13 +179,13 @@ export function SearchBuilder({
   const handleSearch = async () => {
     cancelledRef.current = false;
     setIsSearching(true);
-    setSearchStatus("Starting Apify run...");
+    setSearchStatus(`Searching ${selectedSource?.label || source}...`);
     setCurrentRunId("");
     try {
       const res = await fetch("/api/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(filters),
+        body: JSON.stringify({ ...filters, source }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.failureReason || data.error);
@@ -222,6 +274,15 @@ export function SearchBuilder({
                 value={filters.titles || []}
                 onChange={(val) => updateFilter("titles", val)}
                 placeholder="e.g. Software Engineer"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Location</label>
+              <MultiSelectChips
+                options={[]}
+                value={filters.location || []}
+                onChange={(val) => updateFilter("location", val)}
+                placeholder="e.g. Cairo, Egypt"
               />
             </div>
             <div>
@@ -315,8 +376,28 @@ export function SearchBuilder({
           </div>
 
           <div className="space-y-2">
+            <div>
+              <label className="text-sm font-medium">Source</label>
+              <div className="flex flex-wrap gap-2 mt-1">
+                {SOURCE_OPTIONS.map((opt) => (
+                  <Button
+                    key={opt.id}
+                    type="button"
+                    variant={source === opt.id ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setSource(opt.id)}
+                    disabled={isSearching}
+                  >
+                    {opt.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            {unsupportedFilterNote && (
+              <p className="text-xs text-amber-600 dark:text-amber-500">{unsupportedFilterNote}</p>
+            )}
             <Button className="w-full" size="lg" onClick={handleSearch} disabled={isSearching}>
-              {isSearching ? "Searching..." : "Search LinkedIn"}
+              {isSearching ? "Searching..." : `Search ${selectedSource?.label || ""}`}
             </Button>
             {isSearching && (
               <Button variant="outline" className="w-full" onClick={handleCancelSearch}>

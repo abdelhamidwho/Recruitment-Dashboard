@@ -1,54 +1,11 @@
 import { NextResponse } from "next/server";
-import { fetchDatasetItems, getRunStatus, type Candidate } from "@/lib/apify";
+import { fetchDatasetItems, getRunStatus } from "@/lib/apify";
 import { requireApiUser } from "@/lib/auth/requireUser";
-import { normalizeProfile } from "@/lib/normalize";
 import { prisma } from "@/lib/prisma";
 import { scoreCandidate } from "@/lib/scoring";
 import { SearchFilters } from "@/lib/buildBooleanQuery";
 import { isSearchRunTimedOut, searchRunTimeoutReason } from "@/lib/searchRunTimeout";
-
-/** Upserts one scraped profile onto its permanent Person row, keyed on profileUrl. */
-async function upsertPerson(candidate: Candidate) {
-  const normalized = normalizeProfile(candidate);
-
-  const shared = {
-    externalId: candidate.externalId,
-    fullName: candidate.fullName,
-    headline: candidate.headline,
-    currentTitle: candidate.currentTitle,
-    currentCompany: candidate.currentCompany,
-    avatarUrl: candidate.avatarUrl,
-    summary: candidate.summary,
-    locationRaw: normalized.location.raw,
-    city: normalized.location.city,
-    country: normalized.location.country,
-    region: normalized.location.region,
-    industry: normalized.industry,
-    highestDegree: normalized.education.highestDegree,
-    fieldsOfStudy: JSON.stringify(normalized.education.fieldsOfStudy),
-    totalYearsExperience: normalized.totalYearsExperience,
-    skills: JSON.stringify(candidate.skills ?? []),
-    experience: JSON.stringify(candidate.experience ?? []),
-    education: JSON.stringify(candidate.education ?? []),
-    languages: JSON.stringify(normalized.languages),
-    certifications: JSON.stringify(candidate.certifications ?? []),
-    raw: JSON.stringify(candidate.raw ?? {}),
-    lastRefreshedAt: new Date(),
-  };
-
-  const existing = await prisma.person.findUnique({
-    where: { profileUrl: candidate.profileUrl },
-    select: { id: true },
-  });
-
-  const person = await prisma.person.upsert({
-    where: { profileUrl: candidate.profileUrl },
-    create: { profileUrl: candidate.profileUrl, ...shared },
-    update: shared,
-  });
-
-  return { person, wasKnownBefore: existing !== null };
-}
+import { upsertPerson } from "@/lib/profileStorage";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ searchRunId: string }> }) {
   const auth = await requireApiUser();
@@ -95,7 +52,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ searchR
 
       for (const candidate of scraped) {
         if (!candidate.profileUrl) continue;
-        const { person, wasKnownBefore } = await upsertPerson(candidate);
+        const { person, wasKnownBefore } = await upsertPerson(candidate, searchRun.source ?? undefined);
         const { score, breakdown } = scoreCandidate(candidate, filters);
 
         await prisma.searchRunPerson.upsert({
@@ -127,6 +84,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ searchR
     const candidates = appearances.map(({ person, score, scoreBreakdown, wasKnownBefore }) => ({
       id: person.id,
       externalId: person.externalId,
+      source: person.source,
       fullName: person.fullName,
       headline: person.headline,
       currentTitle: person.currentTitle,

@@ -42,6 +42,15 @@ export interface CandidateSource {
    * merely absent on one candidate's profile.
    */
   unsupportedFields: UnsupportedField[];
+  /**
+   * Which *filters* (as opposed to Candidate fields, see `unsupportedFields`
+   * above) this source cannot act on at all, e.g. GitHub has no concept of
+   * "years of experience". Used purely for UI messaging — telling the user a
+   * filter they set will be ignored, rather than silently dropping it — and
+   * is optional since a source with no gaps (or one not yet audited) simply
+   * omits it.
+   */
+  unsupportedFilterFields?: (keyof SearchFilters)[];
   /** Run a search against this source and return normalized Candidates. */
   search(filters: Partial<SearchFilters>, options?: SourceSearchOptions): Promise<Candidate[]>;
 }

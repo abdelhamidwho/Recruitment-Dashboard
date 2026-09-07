@@ -268,5 +268,20 @@ export const githubSource: CandidateSource = {
     "certifications",
     "totalYearsExperience",
   ],
+  // Mirrors the filter-mapping doc comment above `buildGithubUserQuery`:
+  // these SearchFilters fields have no GitHub equivalent and are silently
+  // ignored by buildGithubUserQuery, so the UI surfaces that explicitly.
+  unsupportedFilterFields: [
+    "yearsMin",
+    "yearsMax",
+    "workMode",
+    "companySize",
+    "industry",
+    "education",
+    "languages",
+    "certifications",
+    "targetCompanies",
+    "excludedCompanies",
+  ],
   search: searchGithub,
 };

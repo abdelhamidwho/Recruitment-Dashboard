@@ -16,6 +16,7 @@ import { SearchFilters } from "@/lib/buildBooleanQuery";
 export interface ResultCandidate {
   id: string;
   externalId?: string | null;
+  source?: string | null;
   fullName: string;
   headline?: string | null;
   currentTitle?: string | null;
@@ -76,6 +77,7 @@ export function ResultsTable({ candidates, filters }: { candidates: ResultCandid
         <TableHeader>
           <TableRow>
             <TableHead className="w-[250px]">Candidate</TableHead>
+            <TableHead>Source</TableHead>
             <TableHead>Current Role</TableHead>
             <TableHead className="cursor-pointer" onClick={() => toggleSort("location")}>Location {sortCol === "location" ? (sortDir === "asc" ? "↑" : "↓") : ""}</TableHead>
             <TableHead className="cursor-pointer" onClick={() => toggleSort("totalYearsExperience")}>YoE {sortCol === "totalYearsExperience" ? (sortDir === "asc" ? "↑" : "↓") : ""}</TableHead>
@@ -94,6 +96,16 @@ export function ResultsTable({ candidates, filters }: { candidates: ResultCandid
                     {candidate.fullName}
                   </a>
                   <div className="text-xs text-muted-foreground line-clamp-1">{candidate.headline}</div>
+                  {candidate.wasKnownBefore && (
+                    <Badge variant="outline" className="text-[10px] px-1 mt-1">Known before</Badge>
+                  )}
+                </TableCell>
+                <TableCell>
+                  {candidate.source ? (
+                    <Badge variant="secondary" className="text-[10px] px-1">{candidate.source}</Badge>
+                  ) : (
+                    <span className="text-muted-foreground">-</span>
+                  )}
                 </TableCell>
                 <TableCell>
                   {candidate.currentTitle}
