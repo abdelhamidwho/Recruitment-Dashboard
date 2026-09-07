@@ -1,5 +1,6 @@
 import { getUser } from '@/lib/auth/requireUser'
 import { ROLES } from '@/lib/auth/constants'
+import { signOut } from './logout-action'
 
 // Presentational only: signed-in name, admin link, sign-out. The
 // mustChangePassword redirect used to live here, but SessionBar only
@@ -18,7 +19,7 @@ export async function SessionBar() {
           Users
         </a>
       ) : null}
-      <form action="/api/auth/logout" method="post">
+      <form action={signOut}>
         <button type="submit" className="underline">
           Sign out
         </button>
