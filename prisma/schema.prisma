@@ -61,6 +61,13 @@ model Person {
   id             String  @id @default(cuid())
   profileUrl     String  @unique // the deduplication key
   externalId     String?
+  // Which source produced this record (e.g. "apify", "github"). Nullable so the
+  // pre-existing rows (all Apify/mock, created before this column existed) are
+  // left as "unknown source" rather than defaulted to a value that would be a
+  // guess; every row written going forward should set this explicitly. Also
+  // lets a later phase interpret profileUrl correctly (a GitHub profileUrl is
+  // not a LinkedIn one).
+  source         String?
   fullName       String
   headline       String?
   currentTitle   String?
@@ -105,6 +112,11 @@ model Person {
 model SearchRun {
   id            String   @id @default(cuid())
   name          String?
+  // Which source this run used (e.g. "apify", "github"). Nullable for the same
+  // reason as Person.source: pre-existing runs predate the adapter layer and
+  // were all Apify/mock, but defaulting them to "apify" here would be
+  // asserting something this migration cannot actually verify row-by-row.
+  source        String?
   runId         String? // Apify run id; not unique, mock mode reuses one value
   datasetId     String?
   status        String   @default("RUNNING") // READY, RUNNING, SUCCEEDED, FAILED, TIMED-OUT, ABORTED

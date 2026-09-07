@@ -29,8 +29,16 @@ export function scoreCandidate(candidate: Candidate, filters: Partial<SearchFilt
   });
 
   // Years of Experience (Bonus/Penalty)
-  const yoe = candidate.totalYearsExperience || 0;
-  if (filters.yearsMin && yoe < filters.yearsMin) {
+  // `totalYearsExperience` is `null`/`undefined` when a source has no experience
+  // data at all (e.g. GitHub) as opposed to a genuine, real zero (e.g. a new
+  // graduate). `candidate.totalYearsExperience || 0` used to conflate the two,
+  // silently penalising every candidate from a source that simply doesn't report
+  // experience. An absent figure is now neutral: no bonus, no penalty, and the
+  // breakdown says so explicitly instead of omitting the line.
+  const yoe = candidate.totalYearsExperience;
+  if (yoe === null || yoe === undefined) {
+    breakdown.push(`+0: Experience unknown (source does not report years of experience)`);
+  } else if (filters.yearsMin && yoe < filters.yearsMin) {
     score -= 10;
     breakdown.push(`-10: Experience (${yoe}y) below minimum (${filters.yearsMin}y)`);
   } else if (filters.yearsMax && yoe > filters.yearsMax) {
