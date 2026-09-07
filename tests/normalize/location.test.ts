@@ -110,4 +110,97 @@ describe('normalizeLocation', () => {
       region: 'MENA',
     })
   })
+
+  it('handles a reversed country-then-city order with no space after the comma', () => {
+    expect(normalizeLocation('Egypt,Cairo')).toEqual({
+      raw: 'Egypt,Cairo',
+      city: 'Cairo',
+      country: 'Egypt',
+      region: 'MENA',
+    })
+  })
+
+  it('handles a reversed country-then-city order with a space after the comma', () => {
+    expect(normalizeLocation('Egypt, Cairo')).toEqual({
+      raw: 'Egypt, Cairo',
+      city: 'Cairo',
+      country: 'Egypt',
+      region: 'MENA',
+    })
+  })
+
+  it('handles a reversed country-then-city order for a country written as a full name', () => {
+    expect(normalizeLocation('United States, San Francisco')).toEqual({
+      raw: 'United States, San Francisco',
+      city: 'San Francisco',
+      country: 'United States',
+      region: 'North America',
+    })
+  })
+
+  it('normalises an all-lowercase city to title case', () => {
+    expect(normalizeLocation('cairo,egypt')).toEqual({
+      raw: 'cairo,egypt',
+      city: 'Cairo',
+      country: 'Egypt',
+      region: 'MENA',
+    })
+  })
+
+  it('normalises an all-uppercase city to title case', () => {
+    expect(normalizeLocation('CAIRO, EGYPT')).toEqual({
+      raw: 'CAIRO, EGYPT',
+      city: 'Cairo',
+      country: 'Egypt',
+      region: 'MENA',
+    })
+  })
+
+  it('leaves a mixed-case multi-word city untouched', () => {
+    expect(normalizeLocation('Rio de Janeiro, Brazil')).toEqual({
+      raw: 'Rio de Janeiro, Brazil',
+      city: 'Rio de Janeiro',
+      country: 'Brazil',
+      region: 'Latin America',
+    })
+  })
+
+  it('leaves an already-normal mixed-case city untouched', () => {
+    expect(normalizeLocation('San Francisco, CA')).toEqual({
+      raw: 'San Francisco, CA',
+      city: 'San Francisco',
+      country: 'United States',
+      region: 'North America',
+    })
+  })
+
+  it('title-cases each segment of an all-lowercase hyphenated city', () => {
+    expect(normalizeLocation('sharm-el-sheikh, egypt')).toEqual({
+      raw: 'sharm-el-sheikh, egypt',
+      city: 'Sharm-El-Sheikh',
+      country: 'Egypt',
+      region: 'MENA',
+    })
+  })
+
+  it('does not reorder when several other segments could be countries', () => {
+    expect(normalizeLocation('France, Germany, Somewhere')).toEqual({
+      raw: 'France, Germany, Somewhere',
+      city: 'France',
+      country: null,
+      region: null,
+    })
+  })
+
+  it('never throws on hostile input', () => {
+    expect(() => normalizeLocation(undefined)).not.toThrow()
+    expect(() => normalizeLocation('')).not.toThrow()
+    expect(() => normalizeLocation(',')).not.toThrow()
+    expect(() => normalizeLocation(',,,')).not.toThrow()
+    expect(() => normalizeLocation('(())')).not.toThrow()
+    expect(() => normalizeLocation('constructor')).not.toThrow()
+    expect(() => normalizeLocation('__proto__')).not.toThrow()
+    expect(() => normalizeLocation('!!!???')).not.toThrow()
+    expect(() => normalizeLocation('x'.repeat(50000))).not.toThrow()
+  })
 })

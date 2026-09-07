@@ -29,16 +29,55 @@ const US_STATES = new Set([
 ])
 
 /**
+ * Resolve a single comma-separated segment to a canonical country name, checking
+ * both the country table and the US state lookup.
+ */
+function resolveCountryOrState(segment: string): string | null {
+  const country = canonicalCountry(segment)
+  if (country) return country
+  if (US_STATES.has(segment.toLowerCase())) return 'United States'
+  return null
+}
+
+/**
+ * Normalise a city's casing only when the raw value is entirely lowercase or
+ * entirely uppercase — an unambiguous sign the source stripped casing rather than
+ * a deliberate spelling. Mixed-case values (e.g. "Rio de Janeiro", "San Francisco",
+ * "'s-Hertogenbosch") pass through untouched, since a naive title-case would mangle
+ * legitimate names. Strings with no cased letters at all (digits/punctuation only)
+ * also pass through untouched, since there is nothing to normalise.
+ */
+function normalizeCityCasing(city: string): string {
+  const isLower = city === city.toLowerCase()
+  const isUpper = city === city.toUpperCase()
+
+  if (isLower && isUpper) return city // no cased letters (e.g. purely numeric) - nothing to do
+  if (!isLower && !isUpper) return city // mixed case - leave it alone
+
+  return city
+    .toLowerCase()
+    .replace(/(^|[^a-zA-ZÀ-ɏ])([a-zA-ZÀ-ɏ])/g, (_m, boundary, letter) => boundary + letter.toUpperCase())
+}
+
+/**
  * Parse free-text location into city, country, and region.
  *
  * Parsing rules:
  * - The rightmost comma-separated segment is treated as the country or US state.
- * - If that segment is a recognised country or state, the leftmost segment is the city.
+ * - If that segment is a recognised country or state, the leftmost remaining segment is the city.
+ * - If the rightmost segment is not recognised, the other segments are checked instead:
+ *   if exactly one of them resolves to a country or US state, that segment is treated as the
+ *   country and the leftmost remaining segment is the city (e.g. "Egypt, Cairo" as well as
+ *   "Cairo, Egypt"). If none or more than one of the other segments resolve, no reordering is
+ *   attempted and the location falls back to the ordinary "unrecognised country" behaviour.
  * - If the country/state segment alone would make a single-token location, city is null.
  * - Work-mode words ('remote', 'worldwide', etc.) are stripped from parts; if all segments
  *   are stripped, the result is all nulls with raw preserved.
  * - Parenthesised groups are stripped before parsing, so "(Remote)" suffixes do not corrupt
  *   country/region resolution.
+ * - A resolved city that is entirely lowercase or entirely uppercase is normalised to
+ *   title case (e.g. "cairo" / "CAIRO" -> "Cairo") so facet counts aren't fragmented by
+ *   incidental casing differences. Mixed-case city values are left exactly as scraped.
  * - Unparseable input yields all nulls with raw preserved, so no candidate is ever lost
  *   to a parsing failure.
  * - Never throws: a `raw` that is not a string (e.g. a number, array, or object — this data
@@ -74,12 +113,33 @@ export function normalizeLocation(raw: unknown): NormalizedLocation {
 
   const last = parts[parts.length - 1]
 
-  let country = canonicalCountry(last)
-  if (!country && US_STATES.has(last.toLowerCase())) {
-    country = 'United States'
+  let country = resolveCountryOrState(last)
+  let countryIndex = country ? parts.length - 1 : -1
+
+  if (countryIndex === -1) {
+    // The last segment isn't a recognised country/state — check whether exactly one of
+    // the other segments is, to handle real-world reversed ordering like "Egypt, Cairo".
+    const otherMatches: number[] = []
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (resolveCountryOrState(parts[i])) otherMatches.push(i)
+    }
+    if (otherMatches.length === 1) {
+      countryIndex = otherMatches[0]
+      country = resolveCountryOrState(parts[countryIndex])
+    }
   }
 
-  const city = parts.length === 1 && country ? null : parts[0]
+  let city: string | null
+  if (countryIndex >= 0) {
+    const remaining = parts.filter((_, i) => i !== countryIndex)
+    city = remaining.length > 0 ? remaining[0] : null
+  } else {
+    city = parts[0]
+  }
+
+  if (city) {
+    city = normalizeCityCasing(city)
+  }
 
   return {
     raw: trimmed,

@@ -521,6 +521,99 @@ describe('normalizeLocation', () => {
       region: 'MENA',
     })
   })
+
+  it('handles a reversed country-then-city order with no space after the comma', () => {
+    expect(normalizeLocation('Egypt,Cairo')).toEqual({
+      raw: 'Egypt,Cairo',
+      city: 'Cairo',
+      country: 'Egypt',
+      region: 'MENA',
+    })
+  })
+
+  it('handles a reversed country-then-city order with a space after the comma', () => {
+    expect(normalizeLocation('Egypt, Cairo')).toEqual({
+      raw: 'Egypt, Cairo',
+      city: 'Cairo',
+      country: 'Egypt',
+      region: 'MENA',
+    })
+  })
+
+  it('handles a reversed country-then-city order for a country written as a full name', () => {
+    expect(normalizeLocation('United States, San Francisco')).toEqual({
+      raw: 'United States, San Francisco',
+      city: 'San Francisco',
+      country: 'United States',
+      region: 'North America',
+    })
+  })
+
+  it('normalises an all-lowercase city to title case', () => {
+    expect(normalizeLocation('cairo,egypt')).toEqual({
+      raw: 'cairo,egypt',
+      city: 'Cairo',
+      country: 'Egypt',
+      region: 'MENA',
+    })
+  })
+
+  it('normalises an all-uppercase city to title case', () => {
+    expect(normalizeLocation('CAIRO, EGYPT')).toEqual({
+      raw: 'CAIRO, EGYPT',
+      city: 'Cairo',
+      country: 'Egypt',
+      region: 'MENA',
+    })
+  })
+
+  it('leaves a mixed-case multi-word city untouched', () => {
+    expect(normalizeLocation('Rio de Janeiro, Brazil')).toEqual({
+      raw: 'Rio de Janeiro, Brazil',
+      city: 'Rio de Janeiro',
+      country: 'Brazil',
+      region: 'Latin America',
+    })
+  })
+
+  it('leaves an already-normal mixed-case city untouched', () => {
+    expect(normalizeLocation('San Francisco, CA')).toEqual({
+      raw: 'San Francisco, CA',
+      city: 'San Francisco',
+      country: 'United States',
+      region: 'North America',
+    })
+  })
+
+  it('title-cases each segment of an all-lowercase hyphenated city', () => {
+    expect(normalizeLocation('sharm-el-sheikh, egypt')).toEqual({
+      raw: 'sharm-el-sheikh, egypt',
+      city: 'Sharm-El-Sheikh',
+      country: 'Egypt',
+      region: 'MENA',
+    })
+  })
+
+  it('does not reorder when several other segments could be countries', () => {
+    expect(normalizeLocation('France, Germany, Somewhere')).toEqual({
+      raw: 'France, Germany, Somewhere',
+      city: 'France',
+      country: null,
+      region: null,
+    })
+  })
+
+  it('never throws on hostile input', () => {
+    expect(() => normalizeLocation(undefined)).not.toThrow()
+    expect(() => normalizeLocation('')).not.toThrow()
+    expect(() => normalizeLocation(',')).not.toThrow()
+    expect(() => normalizeLocation(',,,')).not.toThrow()
+    expect(() => normalizeLocation('(())')).not.toThrow()
+    expect(() => normalizeLocation('constructor')).not.toThrow()
+    expect(() => normalizeLocation('__proto__')).not.toThrow()
+    expect(() => normalizeLocation('!!!???')).not.toThrow()
+    expect(() => normalizeLocation('x'.repeat(50000))).not.toThrow()
+  })
 })
 ```
 
@@ -565,21 +658,63 @@ const US_STATES = new Set([
 ])
 
 /**
+ * Resolve a single comma-separated segment to a canonical country name, checking
+ * both the country table and the US state lookup.
+ */
+function resolveCountryOrState(segment: string): string | null {
+  const country = canonicalCountry(segment)
+  if (country) return country
+  if (US_STATES.has(segment.toLowerCase())) return 'United States'
+  return null
+}
+
+/**
+ * Normalise a city's casing only when the raw value is entirely lowercase or
+ * entirely uppercase — an unambiguous sign the source stripped casing rather than
+ * a deliberate spelling. Mixed-case values (e.g. "Rio de Janeiro", "San Francisco",
+ * "'s-Hertogenbosch") pass through untouched, since a naive title-case would mangle
+ * legitimate names. Strings with no cased letters at all (digits/punctuation only)
+ * also pass through untouched, since there is nothing to normalise.
+ */
+function normalizeCityCasing(city: string): string {
+  const isLower = city === city.toLowerCase()
+  const isUpper = city === city.toUpperCase()
+
+  if (isLower && isUpper) return city // no cased letters (e.g. purely numeric) - nothing to do
+  if (!isLower && !isUpper) return city // mixed case - leave it alone
+
+  return city
+    .toLowerCase()
+    .replace(/(^|[^a-zA-ZÀ-ɏ])([a-zA-ZÀ-ɏ])/g, (_m, boundary, letter) => boundary + letter.toUpperCase())
+}
+
+/**
  * Parse free-text location into city, country, and region.
  *
  * Parsing rules:
  * - The rightmost comma-separated segment is treated as the country or US state.
- * - If that segment is a recognised country or state, the leftmost segment is the city.
+ * - If that segment is a recognised country or state, the leftmost remaining segment is the city.
+ * - If the rightmost segment is not recognised, the other segments are checked instead:
+ *   if exactly one of them resolves to a country or US state, that segment is treated as the
+ *   country and the leftmost remaining segment is the city (e.g. "Egypt, Cairo" as well as
+ *   "Cairo, Egypt"). If none or more than one of the other segments resolve, no reordering is
+ *   attempted and the location falls back to the ordinary "unrecognised country" behaviour.
  * - If the country/state segment alone would make a single-token location, city is null.
  * - Work-mode words ('remote', 'worldwide', etc.) are stripped from parts; if all segments
  *   are stripped, the result is all nulls with raw preserved.
  * - Parenthesised groups are stripped before parsing, so "(Remote)" suffixes do not corrupt
  *   country/region resolution.
+ * - A resolved city that is entirely lowercase or entirely uppercase is normalised to
+ *   title case (e.g. "cairo" / "CAIRO" -> "Cairo") so facet counts aren't fragmented by
+ *   incidental casing differences. Mixed-case city values are left exactly as scraped.
  * - Unparseable input yields all nulls with raw preserved, so no candidate is ever lost
  *   to a parsing failure.
+ * - Never throws: a `raw` that is not a string (e.g. a number, array, or object — this data
+ *   comes straight off an external scraper with no schema guarantee) is treated the same as
+ *   missing input.
  */
-export function normalizeLocation(raw: string | null | undefined): NormalizedLocation {
-  if (!raw || !raw.trim()) {
+export function normalizeLocation(raw: unknown): NormalizedLocation {
+  if (typeof raw !== 'string' || !raw.trim()) {
     return { raw: null, city: null, country: null, region: null }
   }
 
@@ -607,12 +742,33 @@ export function normalizeLocation(raw: string | null | undefined): NormalizedLoc
 
   const last = parts[parts.length - 1]
 
-  let country = canonicalCountry(last)
-  if (!country && US_STATES.has(last.toLowerCase())) {
-    country = 'United States'
+  let country = resolveCountryOrState(last)
+  let countryIndex = country ? parts.length - 1 : -1
+
+  if (countryIndex === -1) {
+    // The last segment isn't a recognised country/state — check whether exactly one of
+    // the other segments is, to handle real-world reversed ordering like "Egypt, Cairo".
+    const otherMatches: number[] = []
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (resolveCountryOrState(parts[i])) otherMatches.push(i)
+    }
+    if (otherMatches.length === 1) {
+      countryIndex = otherMatches[0]
+      country = resolveCountryOrState(parts[countryIndex])
+    }
   }
 
-  const city = parts.length === 1 && country ? null : parts[0]
+  let city: string | null
+  if (countryIndex >= 0) {
+    const remaining = parts.filter((_, i) => i !== countryIndex)
+    city = remaining.length > 0 ? remaining[0] : null
+  } else {
+    city = parts[0]
+  }
+
+  if (city) {
+    city = normalizeCityCasing(city)
+  }
 
   return {
     raw: trimmed,
@@ -626,7 +782,7 @@ export function normalizeLocation(raw: string | null | undefined): NormalizedLoc
 - [x] **Step 4: Run the test to verify it passes**
 
 Run: `npx vitest run tests/normalize/location.test.ts`
-Expected: PASS, 12 tests.
+Expected: PASS, 22 tests.
 
 - [x] **Step 5: Commit**
 
