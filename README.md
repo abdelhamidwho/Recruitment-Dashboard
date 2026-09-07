@@ -64,6 +64,9 @@ or multi-region deployment story here — one process, one database file.
 | `SEED_ADMIN_PASSWORD` | Bootstrap password for that first admin. Change it (or let the forced password-change flow change it) immediately after first login — do not leave the bootstrap value in place. |
 | `SEED_ADMIN_NAME` | Optional display name for the seeded admin (defaults to "Administrator"). |
 | `APIFY_MOCK` | When `true`, all scraping runs against local mock data (`src/data/mockCandidates.json`) instead of calling Apify — this is the default for development and for any environment without real Apify credentials. Set to `false` and supply `APIFY_TOKEN` / `APIFY_ACTOR_ID` to scrape LinkedIn for real. |
+| `APIFY_TOKEN` | Apify API token, required when `APIFY_MOCK=false`. Get one from https://console.apify.com/account/integrations. |
+| `APIFY_ACTOR_ID` | The Apify actor to run, required when `APIFY_MOCK=false`. No actor is chosen yet in this codebase — `src/lib/apify.ts`'s `buildActorInput()`/`mapToCandidate()` are a provisional, unverified mapping for a generic LinkedIn scraper actor. Run `npm run apify:probe` against the actor you choose to see its real input schema and dataset shape before wiring it up for real. |
+| `APIFY_ACTOR_INPUT_VERIFIED` | Must be set to `true` before a live (non-mock) Apify run is allowed. This is a deliberate safety gate: `buildActorInput()` is a guess, not a confirmed mapping, and a malformed request to a real actor still gets billed. Set this only after checking `buildActorInput()`/`mapToCandidate()` against `npm run apify:probe` output for your chosen actor. |
 | `SESSION_COOKIE_SECURE` | Controls the `Secure` flag on the session cookie. Defaults to secure (any value other than the literal string `false` counts as secure) because that is the safe choice for an HTTPS deployment. If this shared server is plain HTTP rather than TLS, set this to `false` — otherwise browsers silently refuse to store or send the cookie and login will appear to succeed while no session persists. Setting it to `false` sends the session token in cleartext on the LAN, so prefer adding TLS to the server instead if at all possible. |
 
 ### Maintenance scripts
@@ -75,6 +78,36 @@ or multi-region deployment story here — one process, one database file.
   re-scraped.
 - `npm run seed:admin` — see above; safe to re-run, it only acts when no admin
   exists yet.
+- `npm run apify:probe` — standalone script that validates `APIFY_TOKEN` against
+  the Apify API and, if `APIFY_ACTOR_ID` is also set, prints that actor's input
+  schema (field names, types, which are required) and the union of top-level
+  field names (with an example value each) seen in a sample of its most recent
+  successful run's dataset. Run this first when mapping a newly-chosen actor —
+  its output is what `buildActorInput()` and `mapToCandidate()` in
+  `src/lib/apify.ts` need to be updated to match. Never prints the token and
+  never writes to any tracked file.
+
+### Wiring up a real Apify actor
+
+The scraper integration (`src/lib/apify.ts`) is actor-agnostic hardening only —
+no actor has been chosen yet, and `buildActorInput()` is a guessed, provisional
+mapping for a generic LinkedIn scraper actor. To use a real actor:
+
+1. Choose the actor and set `APIFY_TOKEN` / `APIFY_ACTOR_ID` in `.env`.
+2. Run `npm run apify:probe` to see that actor's real input schema and dataset
+   shape.
+3. Update `buildActorInput()` (input field names) and `mapToCandidate()`
+   (dataset → `Candidate` field mapping) in `src/lib/apify.ts` to match.
+4. Set `APIFY_ACTOR_INPUT_VERIFIED=true` in `.env`. Until this is set, starting
+   a live (non-mock) run fails fast with an explanatory error instead of
+   silently sending an unverified, possibly-billed request.
+5. Set `APIFY_MOCK=false`.
+
+A `SearchRun` stuck at `RUNNING`/`READY` for more than 15 minutes is
+automatically recorded as `TIMED-OUT` (with `failureReason` set) the next time
+its status is polled, rather than being polled forever; the search UI also
+gives up after roughly the same amount of time and lets you cancel a search
+that is taking too long.
 
 ### Backing up the database
 

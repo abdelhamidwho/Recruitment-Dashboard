@@ -107,8 +107,25 @@ export function SearchBuilder({
   const [searchResults, setSearchResults] = React.useState<ResultCandidate[]>([]);
   const [searchStatus, setSearchStatus] = React.useState<string>("");
   const [currentRunId, setCurrentRunId] = React.useState<string>("");
+  const cancelledRef = React.useRef(false);
+
+  // How long the browser is willing to keep polling before giving up on its
+  // own, independent of the server-side SearchRun timeout in
+  // src/lib/searchRunTimeout.ts. Matches that 15-minute threshold so the UI
+  // gives up at roughly the same point the server marks the run TIMED-OUT.
+  const CLIENT_POLL_TIMEOUT_MS = 15 * 60 * 1000;
+  // Poll interval backs off from 2s up to 10s so a long-running real scrape
+  // doesn't hammer the server for minutes on end.
+  const nextPollDelayMs = (elapsedMs: number) => Math.min(2000 + Math.floor(elapsedMs / 15000) * 1000, 10000);
+
+  const handleCancelSearch = () => {
+    cancelledRef.current = true;
+    setSearchStatus("Cancelled.");
+    setIsSearching(false);
+  };
 
   const handleSearch = async () => {
+    cancelledRef.current = false;
     setIsSearching(true);
     setSearchStatus("Starting Apify run...");
     setCurrentRunId("");
@@ -119,23 +136,51 @@ export function SearchBuilder({
         body: JSON.stringify(filters),
       });
       const data = await res.json();
-      if (data.error) throw new Error(data.error);
+      if (data.error) throw new Error(data.failureReason || data.error);
 
-      // Poll
+      // Poll, with a bounded total wait and a backing-off interval so a
+      // hung Apify run can't poll forever or hammer the server.
       const searchRunId = data.searchRunId;
       setCurrentRunId(searchRunId);
       let status = "RUNNING";
+      const startedAt = Date.now();
+
       while (status === "RUNNING" || status === "READY") {
-        await new Promise((r) => setTimeout(r, 2000));
+        if (cancelledRef.current) return;
+
+        const elapsed = Date.now() - startedAt;
+        if (elapsed > CLIENT_POLL_TIMEOUT_MS) {
+          setSearchStatus(
+            `Timed out after ${Math.round(elapsed / 60000)} minutes waiting on the Apify run. It may still be ` +
+              `running — check back later, or start a new search.`,
+          );
+          setIsSearching(false);
+          return;
+        }
+
+        await new Promise((r) => setTimeout(r, nextPollDelayMs(elapsed)));
+        if (cancelledRef.current) return;
+
         const pollRes = await fetch(`/api/search/${searchRunId}`);
         const pollData = await pollRes.json();
-        if (pollData.error) throw new Error(pollData.error);
+        if (pollData.error) throw new Error(pollData.failureReason || pollData.error);
         status = pollData.status;
-        setSearchStatus(`Status: ${status}...`);
-        
+        const elapsedSeconds = Math.round((Date.now() - startedAt) / 1000);
+        setSearchStatus(`Status: ${status}... (${elapsedSeconds}s elapsed)`);
+
         if (status === "SUCCEEDED") {
           setSearchResults(pollData.candidates || []);
           setSearchStatus("Done!");
+          setIsSearching(false);
+          return;
+        }
+
+        if (status === "TIMED-OUT" || status === "FAILED" || status === "ABORTED") {
+          setSearchStatus(
+            pollData.failureReason
+              ? `Run ${status}: ${pollData.failureReason}`
+              : `Run finished with status: ${status}`,
+          );
           setIsSearching(false);
           return;
         }
@@ -273,6 +318,11 @@ export function SearchBuilder({
             <Button className="w-full" size="lg" onClick={handleSearch} disabled={isSearching}>
               {isSearching ? "Searching..." : "Search LinkedIn"}
             </Button>
+            {isSearching && (
+              <Button variant="outline" className="w-full" onClick={handleCancelSearch}>
+                Cancel
+              </Button>
+            )}
             {searchStatus && <p className="text-xs text-center text-muted-foreground">{searchStatus}</p>}
             <Button variant="outline" className="w-full" onClick={() => {
               setFilters({ yearsMin: 0, yearsMax: 20, limit: 50 });

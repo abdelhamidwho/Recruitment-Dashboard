@@ -5,6 +5,7 @@ import { normalizeProfile } from "@/lib/normalize";
 import { prisma } from "@/lib/prisma";
 import { scoreCandidate } from "@/lib/scoring";
 import { SearchFilters } from "@/lib/buildBooleanQuery";
+import { isSearchRunTimedOut, searchRunTimeoutReason } from "@/lib/searchRunTimeout";
 
 /** Upserts one scraped profile onto its permanent Person row, keyed on profileUrl. */
 async function upsertPerson(candidate: Candidate) {
@@ -69,8 +70,19 @@ export async function GET(_req: Request, { params }: { params: Promise<{ searchR
           where: { id: searchRun.id },
           data: { status: "FAILED", failureReason: message },
         });
-        return NextResponse.json({ status: "FAILED", error: message }, { status: 502 });
+        return NextResponse.json({ status: "FAILED", error: message, failureReason: message }, { status: 502 });
       }
+    }
+
+    // A run stuck at RUNNING/READY past a sensible threshold is recorded as
+    // TIMED-OUT rather than polled forever (see src/lib/searchRunTimeout.ts).
+    if (isSearchRunTimedOut(status, searchRun.createdAt)) {
+      const failureReason = searchRunTimeoutReason(searchRun.createdAt);
+      await prisma.searchRun.update({
+        where: { id: searchRun.id },
+        data: { status: "TIMED-OUT", failureReason },
+      });
+      return NextResponse.json({ status: "TIMED-OUT", failureReason, itemCount: 0, candidates: [] });
     }
 
     if (status !== searchRun.status) {
@@ -79,7 +91,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ searchR
 
     if (status === "SUCCEEDED" && searchRun.datasetId && searchRun.itemCount === 0) {
       const filters = JSON.parse(searchRun.filters) as Partial<SearchFilters>;
-      const scraped = await fetchDatasetItems(searchRun.datasetId);
+      const scraped = await fetchDatasetItems(searchRun.datasetId, filters.limit ?? 50);
 
       for (const candidate of scraped) {
         if (!candidate.profileUrl) continue;
@@ -140,7 +152,12 @@ export async function GET(_req: Request, { params }: { params: Promise<{ searchR
       wasKnownBefore,
     }));
 
-    return NextResponse.json({ status, itemCount: candidates.length, candidates });
+    return NextResponse.json({
+      status,
+      itemCount: candidates.length,
+      candidates,
+      failureReason: searchRun.failureReason ?? null,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return NextResponse.json({ error: message }, { status: 500 });

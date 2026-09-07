@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "db:backfill": "tsx prisma/backfill-normalize.ts",
-    "seed:admin": "tsx prisma/seed-admin.ts"
+    "seed:admin": "tsx prisma/seed-admin.ts",
+    "apify:probe": "tsx scripts/apify-probe.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

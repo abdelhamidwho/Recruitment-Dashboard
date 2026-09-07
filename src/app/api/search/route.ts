@@ -12,7 +12,29 @@ export async function POST(req: Request) {
     const filters = await req.json();
 
     // Start Apify run
-    const { runId, datasetId } = await startRun(filters);
+    let runId: string;
+    let datasetId: string | undefined;
+    try {
+      ({ runId, datasetId } = await startRun(filters));
+    } catch (error) {
+      // Record the failure on a SearchRun row (rather than only throwing)
+      // so it shows up in search history and the UI, not just a bare
+      // in-flight error — this is what makes a missing-credentials or
+      // unverified-actor-input failure visible instead of cryptic.
+      const message = error instanceof Error ? error.message : String(error);
+      const failedRun = await prisma.searchRun.create({
+        data: {
+          filters: JSON.stringify(filters),
+          status: "FAILED",
+          failureReason: message,
+          ownerId: user.id,
+        },
+      });
+      return NextResponse.json(
+        { searchRunId: failedRun.id, status: "FAILED", error: message, failureReason: message },
+        { status: 502 },
+      );
+    }
 
     // Create SearchRun record
     const searchRun = await prisma.searchRun.create({
