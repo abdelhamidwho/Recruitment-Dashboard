@@ -3,12 +3,42 @@
 import * as React from "react";
 import { MultiSelectChips, Option } from "./MultiSelectChips";
 import { buildBooleanQuery, SearchFilters } from "@/lib/buildBooleanQuery";
+import { buildGithubUserQuery } from "@/lib/sources/github";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
 import { ResultsTable, ResultCandidate } from "./ResultsTable";
 import { listSources } from "@/lib/sources";
+
+/**
+ * Computes what the "query preview" panel should show for the given source.
+ * GitHub's actual retrieval query is fully and deterministically derived
+ * from `filters` (see buildGithubUserQuery's doc comment) and is rebuilt
+ * from scratch server-side on every search — there is no mechanism for a
+ * hand-edited string to reach it — so showing GitHub's real `q=` query here
+ * is both accurate and (unlike the LinkedIn boolean string) not something
+ * hand-editing could ever actually influence. Every other source keeps
+ * today's boolean-string preview.
+ */
+export function buildQueryPreview(sourceId: string, filters: Partial<SearchFilters>): string {
+  if (sourceId === "github") return buildGithubUserQuery(filters);
+  return buildBooleanQuery(filters);
+}
+
+/**
+ * Composes the short, plain-language note telling the user that some
+ * filters aren't used to find candidates for this source, but are still
+ * used to rank them (see CandidateSource.describeRankOnlyFilters). Returns
+ * "" when there is nothing to say (no rank-only fragments, e.g. an
+ * unimplemented method or one returning []).
+ */
+export function buildRankOnlyNote(sourceLabel: string, rankOnlyFragments: string[]): string {
+  if (rankOnlyFragments.length === 0) return "";
+  return `${sourceLabel} won't use ${rankOnlyFragments.join(
+    ", ",
+  )} to find people, but still uses them to rank results.`;
+}
 
 /**
  * Source picker options. Combines the registered synchronous sources
@@ -18,8 +48,18 @@ import { listSources } from "@/lib/sources";
  * Kept here rather than fetched from an API since it's static, small, and
  * this is the only place in the UI that needs it.
  */
-const SOURCE_OPTIONS: { id: string; label: string; unsupportedFilterFields?: (keyof SearchFilters)[] }[] = [
-  ...listSources().map((s) => ({ id: s.id, label: s.label, unsupportedFilterFields: s.unsupportedFilterFields })),
+const SOURCE_OPTIONS: {
+  id: string;
+  label: string;
+  unsupportedFilterFields?: (keyof SearchFilters)[];
+  describeRankOnlyFilters?: (filters: Partial<SearchFilters>) => string[];
+}[] = [
+  ...listSources().map((s) => ({
+    id: s.id,
+    label: s.label,
+    unsupportedFilterFields: s.unsupportedFilterFields,
+    describeRankOnlyFilters: s.describeRankOnlyFilters,
+  })),
   { id: "apify", label: "LinkedIn (Apify)" },
 ];
 
@@ -107,6 +147,17 @@ export function SearchBuilder({
     } be ignored for this search.`;
   }, [selectedSource, filters]);
 
+  // Sub-filters this source deliberately excludes from retrieval but still
+  // uses (via scoring, downstream of search()) to rank results — distinct
+  // from unsupportedFilterNote above, which is filters the source has no
+  // way to act on at all. A source without describeRankOnlyFilters (not
+  // implemented, or implemented and returning []) is treated the same:
+  // no note.
+  const rankOnlyNote = React.useMemo(() => {
+    const fragments = selectedSource?.describeRankOnlyFilters?.(filters) || [];
+    return buildRankOnlyNote(selectedSource?.label || source, fragments);
+  }, [selectedSource, filters, source]);
+
   // Generate options for MultiSelect
   const skillOptions: Option[] = skillsTaxonomy.flatMap((cat) =>
     cat.skills.map((skill: string) => ({
@@ -119,12 +170,23 @@ export function SearchBuilder({
   const seniorityOptions: Option[] = ["Intern", "Junior", "Mid", "Senior", "Staff", "Lead", "Principal", "Manager", "Head", "Director"].map(s => ({ value: s, label: s }));
   const workModeOptions: Option[] = ["Remote", "Hybrid", "Onsite"].map(s => ({ value: s, label: s }));
 
-  // Auto-update query preview when filters change (if not overridden by user)
+  // GitHub's query preview is always derived fresh from filters — see
+  // buildQueryPreview's doc comment for why hand-editing doesn't make sense
+  // for that source. Every other source keeps the existing hand-editable
+  // boolean-string preview.
+  const isGithubSource = source === "github";
+
+  // Auto-update the boolean-string preview when filters change (if not
+  // overridden by the user). Doesn't apply to GitHub, whose preview is
+  // computed directly from `filters` on every render instead (see below).
   React.useEffect(() => {
-    if (!isCustom) {
+    if (!isCustom && !isGithubSource) {
       setCustomQuery(buildBooleanQuery(filters));
     }
-  }, [filters, isCustom]);
+  }, [filters, isCustom, isGithubSource]);
+
+  const previewQuery = isGithubSource ? buildQueryPreview(source, filters) : customQuery;
+  const previewLabel = isGithubSource ? "GitHub Query Preview" : "Boolean Preview";
 
   const handleApplyPreset = (presetId: string) => {
     const preset = rolePresets.find((p) => p.id === presetId);
@@ -159,6 +221,12 @@ export function SearchBuilder({
   const [searchResults, setSearchResults] = React.useState<ResultCandidate[]>([]);
   const [searchStatus, setSearchStatus] = React.useState<string>("");
   const [currentRunId, setCurrentRunId] = React.useState<string>("");
+  // Tracks whether a search has completed (successfully) at least once
+  // since the last "Clear all"/new search kicked off, independent of how
+  // many results it returned — lets the UI tell "haven't searched yet"
+  // apart from "searched and found nothing", which searchResults.length
+  // alone can't distinguish.
+  const [hasSearchedOnce, setHasSearchedOnce] = React.useState(false);
   const cancelledRef = React.useRef(false);
 
   // How long the browser is willing to keep polling before giving up on its
@@ -181,6 +249,7 @@ export function SearchBuilder({
     setIsSearching(true);
     setSearchStatus(`Searching ${selectedSource?.label || source}...`);
     setCurrentRunId("");
+    setHasSearchedOnce(false);
     try {
       const res = await fetch("/api/search", {
         method: "POST",
@@ -224,6 +293,7 @@ export function SearchBuilder({
           setSearchResults(pollData.candidates || []);
           setSearchStatus("Done!");
           setIsSearching(false);
+          setHasSearchedOnce(true);
           return;
         }
 
@@ -356,22 +426,30 @@ export function SearchBuilder({
         <div className="w-full md:w-80 border-l pl-6 space-y-6 sticky top-6">
           <div>
             <div className="flex justify-between items-center mb-2">
-              <h2 className="text-lg font-semibold">Boolean Preview</h2>
+              <h2 className="text-lg font-semibold">{previewLabel}</h2>
               <Badge variant="secondary">{activeFiltersCount} filters</Badge>
             </div>
             <Textarea
-              value={customQuery}
+              value={previewQuery}
               onChange={(e) => {
+                if (isGithubSource) return;
                 setCustomQuery(e.target.value);
                 setIsCustom(true);
               }}
+              readOnly={isGithubSource}
               className="h-40 font-mono text-sm"
-              placeholder="Boolean string will appear here..."
+              placeholder={isGithubSource ? "GitHub query will appear here..." : "Boolean string will appear here..."}
             />
-            {isCustom && (
+            {isGithubSource ? (
               <p className="text-xs text-muted-foreground mt-1 text-right">
-                Custom query mode active
+                This is the actual query sent to GitHub, rebuilt from your filters — not hand-editable.
               </p>
+            ) : (
+              isCustom && (
+                <p className="text-xs text-muted-foreground mt-1 text-right">
+                  Custom query mode active
+                </p>
+              )
             )}
           </div>
 
@@ -396,6 +474,9 @@ export function SearchBuilder({
             {unsupportedFilterNote && (
               <p className="text-xs text-amber-600 dark:text-amber-500">{unsupportedFilterNote}</p>
             )}
+            {rankOnlyNote && (
+              <p className="text-xs text-muted-foreground">{rankOnlyNote}</p>
+            )}
             <Button className="w-full" size="lg" onClick={handleSearch} disabled={isSearching}>
               {isSearching ? "Searching..." : `Search ${selectedSource?.label || ""}`}
             </Button>
@@ -410,6 +491,8 @@ export function SearchBuilder({
               setIsCustom(false);
               setSearchResults([]);
               setCurrentRunId("");
+              setHasSearchedOnce(false);
+              setSearchStatus("");
             }} disabled={isSearching}>
               Clear all
             </Button>
@@ -429,6 +512,17 @@ export function SearchBuilder({
             </a>
           </div>
           <ResultsTable candidates={searchResults} filters={filters} />
+        </div>
+      )}
+
+      {hasSearchedOnce && searchResults.length === 0 && (
+        <div className="mt-8 border-t pt-8 text-center">
+          <h2 className="text-lg font-semibold mb-1">No candidates matched this search</h2>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto">
+            {isGithubSource
+              ? "GitHub ANDs every must-have term together, so it's easy to over-narrow. Try removing a must-have skill or two — fewer must-haves usually surfaces more candidates."
+              : "Try widening your filters — fewer must-have requirements usually surfaces more candidates."}
+          </p>
         </div>
       )}
     </div>

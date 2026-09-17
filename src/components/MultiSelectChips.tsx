@@ -3,7 +3,7 @@
 import * as React from "react";
 import { X, Check } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Command, CommandGroup, CommandItem, CommandList } from "@/components/ui/command";
+import { Command, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
@@ -11,6 +11,35 @@ export interface Option {
   value: string;
   label: string;
   category?: string;
+}
+
+/**
+ * Given the raw text currently typed into a MultiSelectChips input, decides
+ * what value (if any) an Enter/"Add" action should add to the selection.
+ * Pure and side-effect free so the add-and-clear behaviour is unit-testable
+ * without rendering the component:
+ * - If the typed text matches an existing option's label or value
+ *   (case-insensitively), that option's value is used instead of the raw
+ *   text, so free typing that happens to match a known option selects it
+ *   rather than creating a duplicate custom entry.
+ * - Returns `null` (nothing to add) when the resolved value is already
+ *   selected, or when it doesn't match an option and custom values aren't
+ *   allowed for this field.
+ */
+export function resolveValueToAdd(
+  input: string,
+  options: Option[],
+  currentValue: string[],
+  allowCustom: boolean,
+): string | null {
+  const existingOption = options.find(
+    (o) => o.label.toLowerCase() === input.toLowerCase() || o.value.toLowerCase() === input.toLowerCase()
+  );
+  const valToAdd = existingOption ? existingOption.value : input;
+
+  if (currentValue.includes(valToAdd)) return null;
+  if (!existingOption && !allowCustom) return null;
+  return valToAdd;
 }
 
 interface MultiSelectChipsProps {
@@ -45,15 +74,10 @@ export function MultiSelectChips({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    const input = inputValue;
-    if (e.key === "Enter" && input) {
+    if (e.key === "Enter" && inputValue) {
       e.preventDefault();
-      const existingOption = options.find(
-        (o) => o.label.toLowerCase() === input.toLowerCase() || o.value.toLowerCase() === input.toLowerCase()
-      );
-      const valToAdd = existingOption ? existingOption.value : input;
-      
-      if (!value.includes(valToAdd) && (existingOption || allowCustom)) {
+      const valToAdd = resolveValueToAdd(inputValue, options, value, allowCustom);
+      if (valToAdd !== null) {
         onChange([...value, valToAdd]);
       }
       setInputValue("");
@@ -100,15 +124,12 @@ export function MultiSelectChips({
         </PopoverTrigger>
         <PopoverContent className="w-[300px] p-0" align="start">
           <Command shouldFilter={false}>
-            <div className="flex items-center border-b px-3">
-              <input
-                className="flex h-10 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
-                placeholder="Search or type to add..."
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                onKeyDown={handleKeyDown}
-              />
-            </div>
+            <CommandInput
+              placeholder="Search or type to add..."
+              value={inputValue}
+              onValueChange={setInputValue}
+              onKeyDown={handleKeyDown}
+            />
             <CommandList>
               {categories.length > 0 ? (
                 categories.map((category) => {
