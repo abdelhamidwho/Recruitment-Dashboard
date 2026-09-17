@@ -51,6 +51,20 @@ export interface CandidateSource {
    * omits it.
    */
   unsupportedFilterFields?: (keyof SearchFilters)[];
+  /**
+   * Given the current filter values, returns human-readable fragments
+   * describing sub-filters that this source deliberately excludes from its
+   * retrieval query but still uses (via scoring, downstream of `search()`)
+   * to rank results — e.g. GitHub can't require "Airflow" or a
+   * nice-to-have skill in `q=` without emptying the result set, but
+   * scoring.ts still matches them against the candidate's skills/summary.
+   * Distinct from `unsupportedFilterFields`, which lists filters a source
+   * has no way to act on at all, with no effect on ranking either. Optional
+   * since a source with nothing excluded this way (or not yet audited)
+   * simply omits it; the UI should treat a missing implementation the same
+   * as one returning `[]`.
+   */
+  describeRankOnlyFilters?(filters: Partial<SearchFilters>): string[];
   /** Run a search against this source and return normalized Candidates. */
   search(filters: Partial<SearchFilters>, options?: SourceSearchOptions): Promise<Candidate[]>;
 }
