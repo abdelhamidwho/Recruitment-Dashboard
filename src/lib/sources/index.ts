@@ -49,4 +49,7 @@ export function resolveRequestedSourceId(raw: unknown): string {
   return id;
 }
 
-export type { CandidateSource, SourceSearchOptions, UnsupportedField } from "./types";
+export type { CandidateSource, SourceSearchOptions, UnsupportedField, SourceDescription } from "./types";
+export { isCompleteSourceDescription } from "./types";
+export { APIFY_SOURCE_DESCRIPTION, UNAVAILABLE_SOURCES } from "./staticSourceInfo";
+export type { UnavailableSource } from "./staticSourceInfo";

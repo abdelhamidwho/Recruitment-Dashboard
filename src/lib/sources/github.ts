@@ -362,5 +362,32 @@ export const githubSource: CandidateSource = {
     "excludedCompanies",
   ],
   describeRankOnlyFilters: describeGithubRankOnlyFilters,
+  // Verified live against api.github.com (2026-09-07) — see the module doc
+  // comment above for the specifics this restates in plain language for a
+  // non-technical HR user.
+  description: {
+    searches:
+      "Searches public GitHub user profiles: name, bio, company, location, and the programming " +
+      "languages in their public repositories. It does not search LinkedIn, Indeed, or Glassdoor.",
+    reliablyReturns: ["Name", "Avatar", "Bio (shown as headline/summary)", "Company", "Location", "Profile URL"],
+    cannotProvide: [
+      "Employment history or years of experience",
+      "Education",
+      "Spoken languages",
+      "Industry",
+      "Work mode (remote/hybrid/onsite)",
+      "Salary",
+      "Contact details beyond what the person has made public",
+    ],
+    cost: "Free — uses the official GitHub REST API.",
+    setupAndLimits:
+      "No setup required. Unauthenticated: about 60 requests/hour and 10 searches/minute. Adding a free " +
+      "GitHub personal access token (no scopes needed) raises this to about 5,000 requests/hour.",
+    readyNow: true,
+    notes: [
+      "Best suited to engineering roles.",
+      "Location is free text people write inconsistently, so some candidates will have no parseable country.",
+    ],
+  },
   search: searchGithub,
 };

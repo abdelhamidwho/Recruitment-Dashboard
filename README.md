@@ -73,7 +73,19 @@ or multi-region deployment story here — one process, one database file.
 ## Candidate sources
 
 The search screen lets you choose which source a search runs against, via the
-**Source** control above the search button (defaults to **GitHub**):
+**Source** control above the search button (defaults to **GitHub**). Selecting
+a source shows a short explanation panel right there — what it actually
+searches, whether it's ready to use, whether it costs money, and (behind a
+"What exactly does X return?" popover) the fields it reliably returns, what
+it genuinely cannot provide, and its setup/rate-limit requirements. This is
+driven by the `description: SourceDescription` field every `CandidateSource`
+must carry (`src/lib/sources/types.ts`); for LinkedIn (Apify), which isn't a
+registered `CandidateSource` (see below), the same shape lives as
+`APIFY_SOURCE_DESCRIPTION` in `src/lib/sources/staticSourceInfo.ts`. Indeed
+and Glassdoor are shown next to the picker as explicitly unavailable, each
+with a one-line reason, so their absence doesn't read as "coming soon" —
+they're `UnavailableSource` entries in the same file, not `CandidateSource`s,
+since neither has anything resembling a `search()` to implement.
 
 - **GitHub** (`src/lib/sources/github.ts`) queries the public GitHub REST API
   (`GET /search/users`, then one `GET /users/{login}` per hit to enrich it) —

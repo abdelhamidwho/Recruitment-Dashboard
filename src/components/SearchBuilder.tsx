@@ -9,7 +9,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
 import { ResultsTable, ResultCandidate } from "./ResultsTable";
-import { listSources } from "@/lib/sources";
+import { listSources, APIFY_SOURCE_DESCRIPTION, UNAVAILABLE_SOURCES } from "@/lib/sources";
+import { SourceDescription } from "@/lib/sources/types";
+import { SourceDescriptionPanel, UnavailableSourcesNote } from "./SourceDescriptionPanel";
 
 /**
  * Computes what the "query preview" panel should show for the given source.
@@ -53,14 +55,16 @@ const SOURCE_OPTIONS: {
   label: string;
   unsupportedFilterFields?: (keyof SearchFilters)[];
   describeRankOnlyFilters?: (filters: Partial<SearchFilters>) => string[];
+  description: SourceDescription;
 }[] = [
   ...listSources().map((s) => ({
     id: s.id,
     label: s.label,
     unsupportedFilterFields: s.unsupportedFilterFields,
     describeRankOnlyFilters: s.describeRankOnlyFilters,
+    description: s.description,
   })),
-  { id: "apify", label: "LinkedIn (Apify)" },
+  { id: "apify", label: "LinkedIn (Apify)", description: APIFY_SOURCE_DESCRIPTION },
 ];
 
 /** Human-readable labels for the filter keys named in unsupportedFilterFields. */
@@ -471,6 +475,10 @@ export function SearchBuilder({
                 ))}
               </div>
             </div>
+            {selectedSource && (
+              <SourceDescriptionPanel sourceLabel={selectedSource.label} description={selectedSource.description} />
+            )}
+            <UnavailableSourcesNote sources={UNAVAILABLE_SOURCES} />
             {unsupportedFilterNote && (
               <p className="text-xs text-amber-600 dark:text-amber-500">{unsupportedFilterNote}</p>
             )}
