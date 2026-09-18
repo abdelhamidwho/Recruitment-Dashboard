@@ -47,4 +47,34 @@ describe('scoreNiceToHaveSkills', () => {
     const result = scoreNiceToHaveSkills(candidate, { niceToHave: ['JavaScript'] })
     expect(result.earned).toBe(0)
   })
+
+  it('ignores sourceId (no must-have folding) when the source is not passed or supports skills', () => {
+    const candidate = baseCandidate({ skills: [] })
+    const result = scoreNiceToHaveSkills(candidate, { mustHave: ['Python'] })
+    expect(result.maxPoints).toBe(0) // must-have with no sourceId isn't folded in; stays a pure gate concern
+    const resultApify = scoreNiceToHaveSkills(candidate, { mustHave: ['Python'] }, 'apify')
+    expect(resultApify.maxPoints).toBe(0)
+  })
+
+  it('folds must-have skills into soft scoring for a source that cannot supply a skills list (GitHub)', () => {
+    // gates.ts no longer hard-gates a must-have skill for such a source
+    // (see gates.test.ts); this is what lets ranking still separate a
+    // candidate whose bio evidences the requirement from one that doesn't.
+    const strong = baseCandidate({ skills: [], headline: 'Python, Airflow, Snowflake, SQL all day' })
+    const weak = baseCandidate({ skills: [], headline: 'Backend generalist' })
+    const filters = { mustHave: ['SQL', 'Python', 'Airflow', 'Snowflake'] }
+    const strongResult = scoreNiceToHaveSkills(strong, filters, 'github')
+    const weakResult = scoreNiceToHaveSkills(weak, filters, 'github')
+    expect(strongResult.maxPoints).toBe(WEIGHTS.niceToHaveSkills)
+    expect(strongResult.earned).toBe(WEIGHTS.niceToHaveSkills)
+    expect(weakResult.earned).toBe(0)
+    expect(strongResult.earned).toBeGreaterThan(weakResult.earned)
+  })
+
+  it('combines nice-to-have and unverifiable must-have skills into one evenly split pool', () => {
+    const candidate = baseCandidate({ skills: [], headline: 'dbt and Python' })
+    const result = scoreNiceToHaveSkills(candidate, { niceToHave: ['dbt'], mustHave: ['Python'] }, 'github')
+    expect(result.maxPoints).toBe(WEIGHTS.niceToHaveSkills)
+    expect(result.earned).toBe(WEIGHTS.niceToHaveSkills) // both terms found
+  })
 })

@@ -75,6 +75,51 @@ describe('applyGates — excluded keywords', () => {
   })
 })
 
+describe('applyGates — sources that cannot supply a skills list', () => {
+  it('does not gate out a candidate on a must-have skill when the source declares "skills" unsupported', () => {
+    // Regression test: a source declaring a dimension unsupported must
+    // never gate candidates out on that dimension. GitHub always reports
+    // skills: [] (it has no such field), so gating on it removed every
+    // candidate from a real 30-result run.
+    const candidate = baseCandidate({ skills: [], headline: 'Backend generalist, no stack mentioned' })
+    const result = applyGates(candidate, { mustHave: ['SQL', 'Python', 'Airflow', 'Snowflake'] }, 'github')
+    expect(result.passed).toBe(true)
+    expect(result.reasons).toEqual([])
+  })
+
+  it('still passes (not double-credited, not excluded) when the unverifiable skill IS mentioned in bio text', () => {
+    const candidate = baseCandidate({ skills: [], headline: 'Python and Airflow at scale' })
+    const result = applyGates(candidate, { mustHave: ['Python', 'Airflow'] }, 'github')
+    expect(result.passed).toBe(true)
+  })
+
+  it('a source with no declared sourceId (or an unregistered one) keeps the must-have gate fully hard', () => {
+    const candidate = baseCandidate({ skills: [] })
+    expect(applyGates(candidate, { mustHave: ['Python'] }).passed).toBe(false)
+    expect(applyGates(candidate, { mustHave: ['Python'] }, 'not-a-real-source').passed).toBe(false)
+  })
+
+  it('a source that can supply skills (e.g. the mock LinkedIn/apify source) keeps must-have gating fully hard', () => {
+    const candidate = baseCandidate({ skills: ['Python'] })
+    const result = applyGates(candidate, { mustHave: ['Python', 'Airflow'] }, 'apify')
+    expect(result.passed).toBe(false)
+    expect(result.reasons).toContain('Missing must-have skill "Airflow"')
+  })
+
+  it('the excluded-keyword gate is unaffected by an unsupported skills field — it only ever fires on text actually present, never on an absence', () => {
+    const candidate = baseCandidate({ skills: [], headline: 'Currently an intern building data pipelines' })
+    const result = applyGates(candidate, { exclude: ['intern'] }, 'github')
+    expect(result.passed).toBe(false)
+    expect(result.reasons.some((r) => r.includes('intern'))).toBe(true)
+  })
+
+  it('the excluded-keyword gate does not misfire for a GitHub candidate simply because currentTitle is always absent', () => {
+    const candidate = baseCandidate({ skills: [], currentTitle: undefined, headline: 'Senior engineer' })
+    const result = applyGates(candidate, { exclude: ['Intern'] }, 'github')
+    expect(result.passed).toBe(true)
+  })
+})
+
 describe('applyGates — both gates combine', () => {
   it('reports all failing reasons at once, not just the first', () => {
     const candidate = baseCandidate({ currentTitle: 'Intern' })

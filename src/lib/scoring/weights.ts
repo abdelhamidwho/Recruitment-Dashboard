@@ -11,9 +11,15 @@
  *   only sets two filters is still scored out of 100, not out of a fraction
  *   of a fixed budget. These numbers only express *relative* importance
  *   between dimensions when more than one applies.
- * - Not used for must-have skills or excluded keywords. Those are hard
- *   gates (`src/lib/scoring/gates.ts`): a missing must-have or a hit on an
+ * - Not used for must-have skills or excluded keywords, for a source that
+ *   can actually verify them. Those are hard gates
+ *   (`src/lib/scoring/gates.ts`): a missing must-have or a hit on an
  *   excluded keyword removes the candidate before soft scoring ever runs,
+ *   for a source whose `skills` field is reliable. When the source can't
+ *   supply `skills` at all (e.g. GitHub), a must-have skill can't be
+ *   hard-gated on — see the comment on `applyGates` — so it's folded into
+ *   `niceToHaveSkills` instead and scored softly like a nice-to-have (see
+ *   `rules/skills.ts`),
  *   rather than costing points.
  *
  * Rationale for the relative sizes:

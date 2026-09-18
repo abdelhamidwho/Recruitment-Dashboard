@@ -127,3 +127,44 @@ describe('scoreCandidate — real spread on a realistic candidate pool', () => {
     expect(scores[1]).toBeGreaterThan(scores[2])
   })
 })
+
+describe('scoreCandidate — a source declaring a dimension unsupported cannot be gated out on it', () => {
+  // Regression test for the reported bug: a real 30-candidate GitHub run
+  // (mustHave ["SQL","Python","Airflow","Snowflake"]) gated out 30 of 30,
+  // because github.ts declares "skills" unsupported (candidate.skills is
+  // always []) and gates.ts checked mustHave skills without consulting
+  // that declaration.
+  const filters = { mustHave: ['SQL', 'Python', 'Airflow', 'Snowflake'] }
+
+  it('never gates a GitHub candidate on must-have skills, matching bio or not', () => {
+    const noEvidence = baseCandidate({ skills: [], headline: 'Backend generalist' })
+    const partialEvidence = baseCandidate({ skills: [], headline: 'Python and SQL engineer' })
+    const fullEvidence = baseCandidate({
+      skills: [],
+      headline: 'SQL, Python, Airflow, Snowflake — data platform lead',
+    })
+
+    for (const candidate of [noEvidence, partialEvidence, fullEvidence]) {
+      const result = scoreCandidate(candidate, filters, 'github')
+      expect(result.gated).toBe(false)
+    }
+  })
+
+  it('still separates candidates by how much bio evidence they carry, rather than flattening to one score', () => {
+    const noEvidence = baseCandidate({ skills: [], headline: 'Backend generalist' })
+    const fullEvidence = baseCandidate({
+      skills: [],
+      headline: 'SQL, Python, Airflow, Snowflake — data platform lead',
+    })
+    const noEvidenceScore = scoreCandidate(noEvidence, filters, 'github').score
+    const fullEvidenceScore = scoreCandidate(fullEvidence, filters, 'github').score
+    expect(fullEvidenceScore).toBeGreaterThan(noEvidenceScore)
+  })
+
+  it('a source that CAN supply skills (mock LinkedIn/apify) still gates normally on the same filters', () => {
+    const missingAirflow = baseCandidate({ skills: ['SQL', 'Python', 'Snowflake'] })
+    const result = scoreCandidate(missingAirflow, filters, 'apify')
+    expect(result.gated).toBe(true)
+    expect(result.breakdown.some((line) => line.includes('Missing must-have skill "Airflow"'))).toBe(true)
+  })
+})

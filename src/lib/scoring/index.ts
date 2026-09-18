@@ -83,7 +83,7 @@ export function scoreCandidate(
   filters: Partial<SearchFilters>,
   sourceId?: string | null,
 ): ScoreResult {
-  const gate = applyGates(candidate, filters);
+  const gate = applyGates(candidate, filters, sourceId);
   if (!gate.passed) {
     return {
       score: 0,
@@ -96,7 +96,7 @@ export function scoreCandidate(
   const normalized = normalizeProfile(candidate);
 
   const results: RuleResult[] = [
-    scoreNiceToHaveSkills(candidate, filters),
+    scoreNiceToHaveSkills(candidate, filters, sourceId),
     scoreTitles(candidate, filters),
     scoreSeniority(candidate, normalized, filters, sourceId),
     scoreLocation(normalized, filters),
