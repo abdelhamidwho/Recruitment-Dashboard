@@ -11,6 +11,13 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { SearchFilters } from "@/lib/buildBooleanQuery";
 
 export interface ResultCandidate {
@@ -44,9 +51,74 @@ export interface ResultCandidate {
   [key: string]: string | number | boolean | null | undefined;
 }
 
+/**
+ * One line of a candidate's score breakdown, as produced by
+ * `scoreCandidate` (`src/lib/scoring/index.ts`) and stored verbatim in
+ * `SearchRunPerson.scoreBreakdown`. Lines look like `+15: Has nice-to-have
+ * skill "AWS" (in headline)`, `+0: Experience unknown (...)`, or, for a
+ * gated candidate, `EXCLUDED: Missing must-have skill "Airflow"`. Parsed
+ * only for display — the score itself is never re-derived here.
+ */
+function parseBreakdownLine(line: string): { tone: "positive" | "negative" | "neutral" | "excluded"; text: string } {
+  const excludedMatch = line.match(/^EXCLUDED:\s*(.*)$/);
+  if (excludedMatch) return { tone: "excluded", text: excludedMatch[1] };
+
+  const pointsMatch = line.match(/^([+-]?[\d.]+):\s*(.*)$/);
+  if (pointsMatch) {
+    const points = Number(pointsMatch[1]);
+    const tone = points > 0 ? "positive" : points < 0 ? "negative" : "neutral";
+    return { tone, text: line };
+  }
+  return { tone: "neutral", text: line };
+}
+
+const TONE_CLASSES: Record<string, string> = {
+  positive: "text-emerald-700 dark:text-emerald-400",
+  negative: "text-red-600 dark:text-red-400",
+  excluded: "text-red-600 dark:text-red-400",
+  neutral: "text-muted-foreground",
+};
+
+/**
+ * "Why this score?" detail — a plain-language readout of the evidence
+ * behind one candidate's score, e.g. "has Python, has PostgreSQL, missing
+ * Airflow, based in Cairo". Renders exactly what `scoreCandidate` computed
+ * (via the stored `scoreBreakdown`); it does not re-derive or reinterpret
+ * any of it, so the panel can never drift from the number shown in the
+ * table.
+ */
+function ScoreExplanationDialog({ candidate, onOpenChange }: { candidate: ResultCandidate | null; onOpenChange: (open: boolean) => void }) {
+  const lines: string[] = candidate?.scoreBreakdown ? JSON.parse(candidate.scoreBreakdown) : [];
+
+  return (
+    <Dialog open={candidate !== null} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Why this score?</DialogTitle>
+          <DialogDescription>
+            {candidate?.fullName} — {candidate?.score ?? 0}/100
+          </DialogDescription>
+        </DialogHeader>
+        <ul className="flex flex-col gap-1.5 text-sm max-h-[60vh] overflow-y-auto">
+          {lines.length === 0 && <li className="text-muted-foreground">No scoring evidence recorded.</li>}
+          {lines.map((line, i) => {
+            const { tone, text } = parseBreakdownLine(line);
+            return (
+              <li key={i} className={TONE_CLASSES[tone]}>
+                {text}
+              </li>
+            );
+          })}
+        </ul>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function ResultsTable({ candidates, filters }: { candidates: ResultCandidate[], filters: Partial<SearchFilters> }) {
   const [sortCol, setSortCol] = useState<string>("score");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [explaining, setExplaining] = useState<ResultCandidate | null>(null);
 
   const sortedCandidates = [...candidates].sort((a, b) => {
     let valA = a[sortCol] ?? "";
@@ -133,7 +205,14 @@ export function ResultsTable({ candidates, filters }: { candidates: ResultCandid
                   )}
                 </TableCell>
                 <TableCell className="text-right font-bold text-lg">
-                  {candidate.score}
+                  <button
+                    type="button"
+                    onClick={() => setExplaining(candidate)}
+                    className="underline decoration-dotted decoration-1 underline-offset-4 hover:decoration-solid focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+                    title="Why this score?"
+                  >
+                    {candidate.score}
+                  </button>
                 </TableCell>
                 <TableCell className="text-right space-x-2">
                   <Button variant="outline" size="sm">Add to Pipeline</Button>
@@ -143,6 +222,7 @@ export function ResultsTable({ candidates, filters }: { candidates: ResultCandid
           })}
         </TableBody>
       </Table>
+      <ScoreExplanationDialog candidate={explaining} onOpenChange={(open) => !open && setExplaining(null)} />
     </div>
   );
 }

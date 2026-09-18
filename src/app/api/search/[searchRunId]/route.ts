@@ -2,10 +2,10 @@ import { NextResponse } from "next/server";
 import { fetchDatasetItems, getRunStatus } from "@/lib/apify";
 import { requireApiUser } from "@/lib/auth/requireUser";
 import { prisma } from "@/lib/prisma";
-import { scoreCandidate } from "@/lib/scoring";
+import { GATED_SCORE_SENTINEL } from "@/lib/scoring";
 import { SearchFilters } from "@/lib/buildBooleanQuery";
 import { isSearchRunTimedOut, searchRunTimeoutReason } from "@/lib/searchRunTimeout";
-import { upsertPerson } from "@/lib/profileStorage";
+import { recordAppearance } from "@/lib/profileStorage";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ searchRunId: string }> }) {
   const auth = await requireApiUser();
@@ -52,20 +52,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ searchR
 
       for (const candidate of scraped) {
         if (!candidate.profileUrl) continue;
-        const { person, wasKnownBefore } = await upsertPerson(candidate, searchRun.source ?? undefined);
-        const { score, breakdown } = scoreCandidate(candidate, filters);
-
-        await prisma.searchRunPerson.upsert({
-          where: { searchRunId_personId: { searchRunId: searchRun.id, personId: person.id } },
-          create: {
-            searchRunId: searchRun.id,
-            personId: person.id,
-            score,
-            scoreBreakdown: JSON.stringify(breakdown),
-            wasKnownBefore,
-          },
-          update: { score, scoreBreakdown: JSON.stringify(breakdown) },
-        });
+        await recordAppearance(searchRun.id, candidate, filters, searchRun.source ?? undefined);
       }
 
       await prisma.searchRun.update({
@@ -80,8 +67,18 @@ export async function GET(_req: Request, { params }: { params: Promise<{ searchR
       orderBy: { score: "desc" },
     });
 
+    // A candidate that failed a hard gate (missing must-have skill, or an
+    // excluded-keyword hit — see src/lib/scoring/gates.ts) is persisted
+    // with GATED_SCORE_SENTINEL instead of a real score, so it can be
+    // upserted once and never re-fetched, but it must not appear in the
+    // ranked list. Gating is reported via `excludedCount`/`excludedSample`
+    // below rather than silently shrinking the result count with no
+    // explanation.
+    const ranked = appearances.filter((a) => a.score !== GATED_SCORE_SENTINEL);
+    const excluded = appearances.filter((a) => a.score === GATED_SCORE_SENTINEL);
+
     // Kept flat and named as the current UI expects; Phase 2 replaces this shape.
-    const candidates = appearances.map(({ person, score, scoreBreakdown, wasKnownBefore }) => ({
+    const candidates = ranked.map(({ person, score, scoreBreakdown, wasKnownBefore }) => ({
       id: person.id,
       externalId: person.externalId,
       source: person.source,
@@ -114,6 +111,14 @@ export async function GET(_req: Request, { params }: { params: Promise<{ searchR
       status,
       itemCount: candidates.length,
       candidates,
+      // Additive fields — how many candidates a hard gate removed from this
+      // run, and a small sample of why, so exclusion is visible in the UI
+      // instead of just a smaller-than-expected result count.
+      excludedCount: excluded.length,
+      excludedSample: excluded.slice(0, 5).map((a) => ({
+        fullName: a.person.fullName,
+        reasons: a.scoreBreakdown ? (JSON.parse(a.scoreBreakdown) as string[]) : [],
+      })),
       failureReason: searchRun.failureReason ?? null,
     });
   } catch (error) {

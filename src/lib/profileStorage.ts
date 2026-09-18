@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { normalizeProfile } from "@/lib/normalize";
-import { scoreCandidate } from "@/lib/scoring";
+import { scoreCandidate, GATED_SCORE_SENTINEL } from "@/lib/scoring";
 import type { Candidate } from "@/lib/apify";
 import type { SearchFilters } from "@/lib/buildBooleanQuery";
 
@@ -63,6 +63,16 @@ export async function upsertPerson(candidate: Candidate, source?: string) {
  * appearance for a given run. Kept alongside upsertPerson (rather than left
  * for each caller to reimplement) so "store a candidate against a run" is one
  * call for both the sync and async source paths.
+ *
+ * A candidate that fails a hard gate (missing must-have skill, or an
+ * excluded-keyword hit — see `src/lib/scoring/gates.ts`) is still upserted
+ * as a Person (so it's not re-fetched pointlessly next time) but is
+ * recorded with `GATED_SCORE_SENTINEL` rather than a real 0-100 score, and
+ * `scoreBreakdown` carries the gate reason(s) instead of scoring evidence.
+ * Callers building a results list (e.g.
+ * `src/app/api/search/[searchRunId]/route.ts`) must filter these out of the
+ * ranked list and report the count separately — a gate is meant to be
+ * visible, not a silent drop.
  */
 export async function recordAppearance(
   searchRunId: string,
@@ -71,7 +81,8 @@ export async function recordAppearance(
   source?: string,
 ) {
   const { person, wasKnownBefore } = await upsertPerson(candidate, source);
-  const { score, breakdown } = scoreCandidate(candidate, filters);
+  const result = scoreCandidate(candidate, filters, source);
+  const score = result.gated ? GATED_SCORE_SENTINEL : result.score;
 
   await prisma.searchRunPerson.upsert({
     where: { searchRunId_personId: { searchRunId, personId: person.id } },
@@ -79,11 +90,11 @@ export async function recordAppearance(
       searchRunId,
       personId: person.id,
       score,
-      scoreBreakdown: JSON.stringify(breakdown),
+      scoreBreakdown: JSON.stringify(result.breakdown),
       wasKnownBefore,
     },
-    update: { score, scoreBreakdown: JSON.stringify(breakdown) },
+    update: { score, scoreBreakdown: JSON.stringify(result.breakdown) },
   });
 
-  return { person, wasKnownBefore, score };
+  return { person, wasKnownBefore, score, gated: result.gated };
 }
