@@ -1,17 +1,22 @@
 "use client";
 
 import * as React from "react";
-import { MultiSelectChips, Option } from "./MultiSelectChips";
+import { Option } from "./MultiSelectChips";
 import { buildBooleanQuery, SearchFilters } from "@/lib/buildBooleanQuery";
 import { buildGithubUserQuery } from "@/lib/sources/github";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { Slider } from "@/components/ui/slider";
-import { Badge } from "@/components/ui/badge";
-import { ResultsTable, ResultCandidate } from "./ResultsTable";
+import { ResultCandidate } from "./ResultsTable";
 import { listSources, APIFY_SOURCE_DESCRIPTION, UNAVAILABLE_SOURCES } from "@/lib/sources";
 import { SourceDescription } from "@/lib/sources/types";
-import { SourceDescriptionPanel, UnavailableSourcesNote } from "./SourceDescriptionPanel";
+import { FilterRail } from "./FilterRail";
+import { SearchControls } from "./SearchControls";
+import { ResultsArea } from "./ResultsArea";
+import {
+  applyFacetSelection,
+  computeFacetsForDisplay,
+  FacetDimension,
+  FacetGroupResult,
+  FacetSelection,
+} from "@/lib/facets";
 
 /**
  * Computes what the "query preview" panel should show for the given source.
@@ -128,6 +133,12 @@ export function SearchBuilder({
   // is chosen and verified.
   const [source, setSource] = React.useState<string>("github");
 
+  // Facet narrowing state: which values are selected per dimension. This is
+  // entirely client-side and filters candidates already on screen — it
+  // never triggers a new search against the source (see SearchControls vs
+  // FilterRail/ResultsArea).
+  const [facetSelection, setFacetSelection] = React.useState<FacetSelection>({});
+
   const selectedSource = SOURCE_OPTIONS.find((s) => s.id === source);
   // Filters the user has actually set that the chosen source cannot act on
   // at all — surfaced near the search button so a filter isn't silently
@@ -158,15 +169,6 @@ export function SearchBuilder({
     const fragments = selectedSource?.describeRankOnlyFilters?.(filters) || [];
     return buildRankOnlyNote(selectedSource?.label || source, fragments);
   }, [selectedSource, filters, source]);
-
-  // Generate options for MultiSelect
-  const skillOptions: Option[] = skillsTaxonomy.flatMap((cat) =>
-    cat.skills.map((skill: string) => ({
-      value: skill,
-      label: skill,
-      category: cat.category,
-    }))
-  );
 
   const seniorityOptions: Option[] = ["Intern", "Junior", "Mid", "Senior", "Staff", "Lead", "Principal", "Manager", "Head", "Director"].map(s => ({ value: s, label: s }));
   const workModeOptions: Option[] = ["Remote", "Hybrid", "Onsite"].map(s => ({ value: s, label: s }));
@@ -239,6 +241,7 @@ export function SearchBuilder({
     setSearchStatus(`Searching ${selectedSource?.label || source}...`);
     setCurrentRunId("");
     setHasSearchedOnce(false);
+    setFacetSelection({});
     try {
       const res = await fetch("/api/search", {
         method: "POST",
@@ -305,216 +308,94 @@ export function SearchBuilder({
     setIsSearching(false);
   };
 
+  const handleClearAll = () => {
+    setFilters({ yearsMin: 0, yearsMax: 20, limit: 50 });
+    setIsCustom(false);
+    setSearchResults([]);
+    setCurrentRunId("");
+    setHasSearchedOnce(false);
+    setSearchStatus("");
+    setFacetSelection({});
+  };
+
+  // Facet narrowing: computed purely from the current result set (see
+  // src/lib/facets.ts) — never from the whole database — and recomputed
+  // whenever results or the selection change.
+  const facetGroups = React.useMemo(
+    () => computeFacetsForDisplay(searchResults, facetSelection),
+    [searchResults, facetSelection],
+  );
+  const facetsByKey = React.useMemo(
+    () => Object.fromEntries(facetGroups.map((g) => [g.key, g])) as Record<FacetDimension, FacetGroupResult>,
+    [facetGroups],
+  );
+  const visibleCandidates = React.useMemo(
+    () => applyFacetSelection(searchResults, facetSelection),
+    [searchResults, facetSelection],
+  );
+  const activeFacetCount = Object.values(facetSelection).filter((v) => (v?.length ?? 0) > 0).length;
+
+  const toggleFacet = (dimension: FacetDimension, value: string) => {
+    setFacetSelection((prev) => {
+      const current = prev[dimension] || [];
+      const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
+      return { ...prev, [dimension]: next };
+    });
+  };
+
   return (
-    <div className="flex flex-col gap-6 p-6 h-full">
-      <div className="flex flex-col md:flex-row gap-6">
-        {/* Left panel: Filter Builder */}
-        <div className="flex-1 space-y-6 overflow-y-auto pr-4">
-          <div>
-            <label className="text-sm font-medium">
-              Job Title <span className="text-red-600">*</span>
-            </label>
-            <MultiSelectChips
-              options={[]} // always free text — the user always writes their own title
-              value={filters.titles || []}
-              onChange={(val) => updateFilter("titles", val)}
-              placeholder='Type a title and press Enter, e.g. "Backend Engineer"'
-            />
-            <p className="text-xs text-muted-foreground mt-1">
-              Required — type the job title(s) you&apos;re hiring for. You can add more than one, e.g. &quot;Backend
-              Engineer&quot; and &quot;Software Engineer&quot;.
-            </p>
-          </div>
+    <div className="flex flex-col h-full p-6">
+      <SearchControls
+        filters={filters}
+        updateFilter={updateFilter}
+        previewQuery={previewQuery}
+        previewLabel={previewLabel}
+        isGithubSource={isGithubSource}
+        onPreviewChange={(value) => {
+          if (isGithubSource) return;
+          setCustomQuery(value);
+          setIsCustom(true);
+        }}
+        isCustom={isCustom}
+        sourceOptions={SOURCE_OPTIONS}
+        source={source}
+        setSource={setSource}
+        selectedSource={selectedSource}
+        unavailableSources={UNAVAILABLE_SOURCES}
+        unsupportedFilterNote={unsupportedFilterNote}
+        rankOnlyNote={rankOnlyNote}
+        activeFiltersCount={activeFiltersCount}
+        isSearching={isSearching}
+        hasTitle={hasTitle}
+        onSearch={handleSearch}
+        onCancel={handleCancelSearch}
+        onClear={handleClearAll}
+        searchStatus={searchStatus}
+      />
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm font-medium">Location</label>
-              <MultiSelectChips
-                options={[]}
-                value={filters.location || []}
-                onChange={(val) => updateFilter("location", val)}
-                placeholder="e.g. Cairo, Egypt"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium">Seniority</label>
-              <MultiSelectChips
-                options={seniorityOptions}
-                value={filters.seniority || []}
-                onChange={(val) => updateFilter("seniority", val)}
-                placeholder="Select seniority..."
-                allowCustom={false}
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium">Must-have Skills</label>
-              <MultiSelectChips
-                options={skillOptions}
-                value={filters.mustHave || []}
-                onChange={(val) => updateFilter("mustHave", val)}
-                placeholder="Select skills..."
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium">Nice-to-have Skills</label>
-              <MultiSelectChips
-                options={skillOptions}
-                value={filters.niceToHave || []}
-                onChange={(val) => updateFilter("niceToHave", val)}
-                placeholder="Select skills..."
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium">Excluded Keywords</label>
-              <MultiSelectChips
-                options={[]}
-                value={filters.exclude || []}
-                onChange={(val) => updateFilter("exclude", val)}
-                placeholder="e.g. Intern, Student"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium">Work Mode</label>
-              <MultiSelectChips
-                options={workModeOptions}
-                value={filters.workMode || []}
-                onChange={(val) => updateFilter("workMode", val)}
-                placeholder="Select mode..."
-                allowCustom={false}
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="text-sm font-medium">Years of Experience ({filters.yearsMin} - {filters.yearsMax} yrs)</label>
-            <div className="pt-4 px-2">
-              <Slider
-                defaultValue={[0, 20]}
-                value={[filters.yearsMin || 0, filters.yearsMax || 20]}
-                max={20}
-                step={1}
-                onValueChange={(val) => {
-                  const [min, max] = val as number[];
-                  updateFilter("yearsMin", min);
-                  updateFilter("yearsMax", max);
-                }}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Right panel: Live Preview & Actions */}
-        <div className="w-full md:w-80 border-l pl-6 space-y-6 sticky top-6">
-          <div>
-            <div className="flex justify-between items-center mb-2">
-              <h2 className="text-lg font-semibold">{previewLabel}</h2>
-              <Badge variant="secondary">{activeFiltersCount} filters</Badge>
-            </div>
-            <Textarea
-              value={previewQuery}
-              onChange={(e) => {
-                if (isGithubSource) return;
-                setCustomQuery(e.target.value);
-                setIsCustom(true);
-              }}
-              readOnly={isGithubSource}
-              className="h-40 font-mono text-sm"
-              placeholder={isGithubSource ? "GitHub query will appear here..." : "Boolean string will appear here..."}
-            />
-            {isGithubSource ? (
-              <p className="text-xs text-muted-foreground mt-1 text-right">
-                This is the actual query sent to GitHub, rebuilt from your filters — not hand-editable.
-              </p>
-            ) : (
-              isCustom && (
-                <p className="text-xs text-muted-foreground mt-1 text-right">
-                  Custom query mode active
-                </p>
-              )
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <div>
-              <label className="text-sm font-medium">Source</label>
-              <div className="flex flex-wrap gap-2 mt-1">
-                {SOURCE_OPTIONS.map((opt) => (
-                  <Button
-                    key={opt.id}
-                    type="button"
-                    variant={source === opt.id ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setSource(opt.id)}
-                    disabled={isSearching}
-                  >
-                    {opt.label}
-                  </Button>
-                ))}
-              </div>
-            </div>
-            {selectedSource && (
-              <SourceDescriptionPanel sourceLabel={selectedSource.label} description={selectedSource.description} />
-            )}
-            <UnavailableSourcesNote sources={UNAVAILABLE_SOURCES} />
-            {unsupportedFilterNote && (
-              <p className="text-xs text-amber-600 dark:text-amber-500">{unsupportedFilterNote}</p>
-            )}
-            {rankOnlyNote && (
-              <p className="text-xs text-muted-foreground">{rankOnlyNote}</p>
-            )}
-            <Button className="w-full" size="lg" onClick={handleSearch} disabled={isSearching || !hasTitle}>
-              {isSearching ? "Searching..." : `Search ${selectedSource?.label || ""}`}
-            </Button>
-            {!hasTitle && !isSearching && (
-              <p className="text-xs text-center text-amber-600 dark:text-amber-500">
-                Add a job title above to search — it&apos;s the one thing you always have to enter yourself.
-              </p>
-            )}
-            {isSearching && (
-              <Button variant="outline" className="w-full" onClick={handleCancelSearch}>
-                Cancel
-              </Button>
-            )}
-            {searchStatus && <p className="text-xs text-center text-muted-foreground">{searchStatus}</p>}
-            <Button variant="outline" className="w-full" onClick={() => {
-              setFilters({ yearsMin: 0, yearsMax: 20, limit: 50 });
-              setIsCustom(false);
-              setSearchResults([]);
-              setCurrentRunId("");
-              setHasSearchedOnce(false);
-              setSearchStatus("");
-            }} disabled={isSearching}>
-              Clear all
-            </Button>
-            <Button variant="ghost" className="w-full" disabled={isSearching}>
-              Save as preset
-            </Button>
-          </div>
-        </div>
+      <div className="flex flex-1 min-h-0 gap-6 flex-col md:flex-row">
+        <FilterRail
+          filters={filters}
+          updateFilter={updateFilter}
+          skillsTaxonomy={skillsTaxonomy}
+          seniorityOptions={seniorityOptions}
+          workModeOptions={workModeOptions}
+          facetsByKey={facetsByKey}
+          selection={facetSelection}
+          onToggleFacet={toggleFacet}
+          activeFacetCount={activeFacetCount}
+        />
+        <ResultsArea
+          totalCount={searchResults.length}
+          visibleCandidates={visibleCandidates}
+          filters={filters}
+          currentRunId={currentRunId}
+          activeFacetCount={activeFacetCount}
+          onClearNarrowing={() => setFacetSelection({})}
+          hasSearchedOnce={hasSearchedOnce}
+          isGithubSource={isGithubSource}
+        />
       </div>
-      
-      {searchResults.length > 0 && (
-        <div className="mt-8 border-t pt-8">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-2xl font-bold">Results ({searchResults.length})</h2>
-            <a href={`/api/export?searchRunId=${currentRunId}`} download className="inline-flex shrink-0 items-center justify-center rounded-lg border border-border bg-background px-2.5 h-8 text-sm font-medium transition-all hover:bg-muted focus-visible:border-ring">
-              Export CSV
-            </a>
-          </div>
-          <ResultsTable candidates={searchResults} filters={filters} />
-        </div>
-      )}
-
-      {hasSearchedOnce && searchResults.length === 0 && (
-        <div className="mt-8 border-t pt-8 text-center">
-          <h2 className="text-lg font-semibold mb-1">No candidates matched this search</h2>
-          <p className="text-sm text-muted-foreground max-w-md mx-auto">
-            {isGithubSource
-              ? "GitHub ANDs every must-have term together, so it's easy to over-narrow. Try removing a must-have skill or two — fewer must-haves usually surfaces more candidates."
-              : "Try widening your filters — fewer must-have requirements usually surfaces more candidates."}
-          </p>
-        </div>
-      )}
     </div>
   );
 }
