@@ -17,6 +17,14 @@ import {
   FacetGroupResult,
   FacetSelection,
 } from "@/lib/facets";
+import type { CollaborationState } from "@/lib/collaboration";
+import {
+  fetchCollaborationState,
+  fetchJobs,
+  fetchWatchlists,
+  type JobSummary,
+  type WatchlistSummary,
+} from "@/lib/collaborationApi";
 
 /**
  * Computes what the "query preview" panel should show for the given source.
@@ -104,8 +112,10 @@ interface SkillCategory {
 
 export function SearchBuilder({
   skillsTaxonomy,
+  currentUserId,
 }: {
   skillsTaxonomy: SkillCategory[];
+  currentUserId: string;
 }) {
   const [filters, setFilters] = React.useState<Partial<SearchFilters>>({
     titles: [],
@@ -218,6 +228,57 @@ export function SearchBuilder({
   // alone can't distinguish.
   const [hasSearchedOnce, setHasSearchedOnce] = React.useState(false);
   const cancelledRef = React.useRef(false);
+
+  // Collaboration state (favourited-by-me, viewers, pipeline stage) for the
+  // whole result list, fetched in one batch call — never one request per
+  // candidate (see fetchCollaborationState / getCollaborationState). Jobs
+  // and watchlists are the shared reference lists the row actions and
+  // detail dialog need (which jobs exist to add to, which watchlists are
+  // visible to add to).
+  const [collabByPersonId, setCollabByPersonId] = React.useState<Record<string, CollaborationState>>({});
+  const [jobs, setJobs] = React.useState<JobSummary[]>([]);
+  const [watchlists, setWatchlists] = React.useState<WatchlistSummary[]>([]);
+  const [collabError, setCollabError] = React.useState<string>("");
+
+  React.useEffect(() => {
+    (async () => {
+      const [jobsResult, watchlistsResult] = await Promise.all([fetchJobs(), fetchWatchlists()]);
+      if (jobsResult.ok) setJobs(jobsResult.data!.jobs);
+      if (watchlistsResult.ok) setWatchlists(watchlistsResult.data!.watchlists);
+    })();
+  }, []);
+
+  React.useEffect(() => {
+    // Nothing to reset synchronously to "{}" when the result list empties —
+    // an empty candidates array already renders no rows, so a stale
+    // collab-state cache is simply unused, and skipping the reset avoids a
+    // synchronous setState at the top of this effect.
+    if (searchResults.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const result = await fetchCollaborationState(searchResults.map((c) => c.id));
+      if (cancelled) return;
+      if (result.ok) {
+        setCollabByPersonId(result.data!.state);
+      } else {
+        setCollabError(`Couldn't load who's viewed/favourited these candidates: ${result.error}`);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [searchResults]);
+
+  /** Applies an optimistic/confirmed update to one candidate's collaboration state, used by row actions and the detail dialog so the table reflects an action without a full batch refetch. */
+  const updateCollab = React.useCallback(
+    (personId: string, updater: (prev: CollaborationState) => CollaborationState) => {
+      setCollabByPersonId((prev) => ({
+        ...prev,
+        [personId]: updater(prev[personId] ?? { favorited: false, watchlists: [], viewedBy: [], jobs: [] }),
+      }));
+    },
+    [],
+  );
 
   // How long the browser is willing to keep polling before giving up on its
   // own, independent of the server-side SearchRun timeout in
@@ -385,16 +446,32 @@ export function SearchBuilder({
           onToggleFacet={toggleFacet}
           activeFacetCount={activeFacetCount}
         />
-        <ResultsArea
-          totalCount={searchResults.length}
-          visibleCandidates={visibleCandidates}
-          filters={filters}
-          currentRunId={currentRunId}
-          activeFacetCount={activeFacetCount}
-          onClearNarrowing={() => setFacetSelection({})}
-          hasSearchedOnce={hasSearchedOnce}
-          isGithubSource={isGithubSource}
-        />
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col">
+          {collabError && (
+            <div role="alert" className="mb-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {collabError}{" "}
+              <button type="button" className="underline" onClick={() => setCollabError("")}>Dismiss</button>
+            </div>
+          )}
+          <ResultsArea
+            totalCount={searchResults.length}
+            visibleCandidates={visibleCandidates}
+            filters={filters}
+            currentRunId={currentRunId}
+            activeFacetCount={activeFacetCount}
+            onClearNarrowing={() => setFacetSelection({})}
+            hasSearchedOnce={hasSearchedOnce}
+            isGithubSource={isGithubSource}
+            currentUserId={currentUserId}
+            collabByPersonId={collabByPersonId}
+            jobs={jobs}
+            watchlists={watchlists}
+            onCollabChange={updateCollab}
+            onJobCreated={(job) => setJobs((prev) => [job, ...prev.filter((j) => j.id !== job.id)])}
+            onWatchlistCreated={(wl) => setWatchlists((prev) => [wl, ...prev.filter((w) => w.id !== wl.id)])}
+            onError={setCollabError}
+          />
+        </div>
       </div>
     </div>
   );

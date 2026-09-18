@@ -4,6 +4,8 @@ import { ResultsTable, ResultCandidate } from "./ResultsTable";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SearchFilters } from "@/lib/buildBooleanQuery";
+import type { CollaborationState } from "@/lib/collaboration";
+import type { JobSummary, WatchlistSummary } from "@/lib/collaborationApi";
 
 /**
  * The results area that fills the rest of the screen next to the filter
@@ -21,6 +23,14 @@ export function ResultsArea({
   onClearNarrowing,
   hasSearchedOnce,
   isGithubSource,
+  currentUserId,
+  collabByPersonId,
+  jobs,
+  watchlists,
+  onCollabChange,
+  onJobCreated,
+  onWatchlistCreated,
+  onError,
 }: {
   totalCount: number;
   visibleCandidates: ResultCandidate[];
@@ -30,6 +40,14 @@ export function ResultsArea({
   onClearNarrowing: () => void;
   hasSearchedOnce: boolean;
   isGithubSource: boolean;
+  currentUserId: string;
+  collabByPersonId: Record<string, CollaborationState>;
+  jobs: JobSummary[];
+  watchlists: WatchlistSummary[];
+  onCollabChange: (personId: string, updater: (prev: CollaborationState) => CollaborationState) => void;
+  onJobCreated: (job: JobSummary) => void;
+  onWatchlistCreated: (watchlist: WatchlistSummary) => void;
+  onError: (message: string) => void;
 }) {
   if (totalCount === 0) {
     if (!hasSearchedOnce) {
@@ -94,7 +112,18 @@ export function ResultsArea({
           </Button>
         </div>
       ) : (
-        <ResultsTable candidates={visibleCandidates} filters={filters} />
+        <ResultsTable
+          candidates={visibleCandidates}
+          filters={filters}
+          currentUserId={currentUserId}
+          collabByPersonId={collabByPersonId}
+          jobs={jobs}
+          watchlists={watchlists}
+          onCollabChange={onCollabChange}
+          onJobCreated={onJobCreated}
+          onWatchlistCreated={onWatchlistCreated}
+          onError={onError}
+        />
       )}
     </div>
   );

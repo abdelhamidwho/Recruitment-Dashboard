@@ -18,7 +18,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Input } from "@/components/ui/input";
 import { SearchFilters } from "@/lib/buildBooleanQuery";
+import { summarizeViewers, summarizePipeline } from "@/lib/collaborationDisplay";
+import type { CollaborationState } from "@/lib/collaboration";
+import {
+  toggleFavorite as apiToggleFavorite,
+  addCandidateToJob,
+  createJob as apiCreateJob,
+  type JobSummary,
+} from "@/lib/collaborationApi";
+import { CandidateDetailDialog } from "./CandidateDetailDialog";
 
 export interface ResultCandidate {
   id: string;
@@ -115,10 +126,171 @@ function ScoreExplanationDialog({ candidate, onOpenChange }: { candidate: Result
   );
 }
 
-export function ResultsTable({ candidates, filters }: { candidates: ResultCandidate[], filters: Partial<SearchFilters> }) {
+const EMPTY_COLLAB: CollaborationState = { favorited: false, watchlists: [], viewedBy: [], jobs: [] };
+
+/**
+ * Compact per-candidate quick actions for the "Actions" cell: favourite
+ * star and an "Add to Pipeline" popover (existing job, or create one).
+ * Deliberately small — the full set of controls (watchlists, stage change,
+ * stage history) lives in the detail dialog, opened from the candidate's
+ * name, so this row stays scannable.
+ */
+function RowActions({
+  candidate,
+  collab,
+  jobs,
+  onCollabChange,
+  onJobCreated,
+  onError,
+}: {
+  candidate: ResultCandidate;
+  collab: CollaborationState;
+  jobs: JobSummary[];
+  onCollabChange: (personId: string, updater: (prev: CollaborationState) => CollaborationState) => void;
+  onJobCreated: (job: JobSummary) => void;
+  onError: (message: string) => void;
+}) {
+  const [busy, setBusy] = useState<string>("");
+  const [addJobId, setAddJobId] = useState("");
+  const [newJobTitle, setNewJobTitle] = useState("");
+  const [open, setOpen] = useState(false);
+
+  const alreadyIn = new Set(collab.jobs.map((j) => j.jobId));
+  const availableJobs = jobs.filter((j) => !alreadyIn.has(j.id));
+
+  const handleFavorite = async () => {
+    setBusy("favorite");
+    const result = await apiToggleFavorite(candidate.id);
+    setBusy("");
+    if (!result.ok) {
+      onError(`Couldn't update favourite for ${candidate.fullName}: ${result.error}`);
+      return;
+    }
+    onCollabChange(candidate.id, (prev) => ({ ...prev, favorited: result.data!.favorited }));
+  };
+
+  const handleAdd = async () => {
+    if (!addJobId) return;
+    setBusy("add");
+    const result = await addCandidateToJob(addJobId, candidate.id);
+    setBusy("");
+    if (!result.ok) {
+      onError(`Couldn't add ${candidate.fullName} to pipeline: ${result.error}`);
+      return;
+    }
+    const job = jobs.find((j) => j.id === addJobId);
+    onCollabChange(candidate.id, (prev) => ({
+      ...prev,
+      jobs: [...prev.jobs, { jobId: addJobId, jobTitle: job?.title ?? "Job", stage: result.data!.candidate.stage }],
+    }));
+    setAddJobId("");
+    setOpen(false);
+  };
+
+  const handleCreateAndAdd = async () => {
+    const title = newJobTitle.trim();
+    if (!title) return;
+    setBusy("create");
+    const created = await apiCreateJob(title);
+    if (!created.ok) {
+      setBusy("");
+      onError(`Couldn't create job: ${created.error}`);
+      return;
+    }
+    onJobCreated(created.data!.job);
+    const added = await addCandidateToJob(created.data!.job.id, candidate.id);
+    setBusy("");
+    if (!added.ok) {
+      onError(`Job created, but couldn't add ${candidate.fullName}: ${added.error}`);
+      return;
+    }
+    onCollabChange(candidate.id, (prev) => ({
+      ...prev,
+      jobs: [...prev.jobs, { jobId: created.data!.job.id, jobTitle: title, stage: added.data!.candidate.stage }],
+    }));
+    setNewJobTitle("");
+    setOpen(false);
+  };
+
+  return (
+    <div className="flex items-center justify-end gap-1.5">
+      <button
+        type="button"
+        onClick={handleFavorite}
+        disabled={busy === "favorite"}
+        aria-pressed={collab.favorited}
+        title={collab.favorited ? "Remove favourite" : "Favourite"}
+        className="text-base leading-none disabled:opacity-50"
+      >
+        {collab.favorited ? "★" : "☆"}
+      </button>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger render={<Button variant="outline" size="sm" />}>Add to Pipeline</PopoverTrigger>
+        <PopoverContent className="w-64">
+          <p className="text-xs font-medium">Add {candidate.fullName} to a job</p>
+          {availableJobs.length > 0 ? (
+            <div className="flex items-center gap-1.5">
+              <select
+                className="h-7 flex-1 rounded-md border border-input bg-transparent px-1.5 text-xs"
+                value={addJobId}
+                onChange={(e) => setAddJobId(e.target.value)}
+              >
+                <option value="">Choose job…</option>
+                {availableJobs.map((j) => (
+                  <option key={j.id} value={j.id}>{j.title}</option>
+                ))}
+              </select>
+              <Button type="button" size="sm" disabled={!addJobId || busy === "add"} onClick={handleAdd}>
+                Add
+              </Button>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">Already in every open job, or none exist yet.</p>
+          )}
+          <div className="flex items-center gap-1.5">
+            <Input
+              className="h-7 flex-1 text-xs"
+              placeholder="New job title"
+              value={newJobTitle}
+              onChange={(e) => setNewJobTitle(e.target.value)}
+            />
+            <Button type="button" size="sm" variant="outline" disabled={!newJobTitle.trim() || busy === "create"} onClick={handleCreateAndAdd}>
+              Create
+            </Button>
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
+export function ResultsTable({
+  candidates,
+  filters,
+  currentUserId = "",
+  collabByPersonId = {},
+  jobs = [],
+  watchlists = [],
+  onCollabChange = () => {},
+  onJobCreated = () => {},
+  onWatchlistCreated = () => {},
+  onError = () => {},
+}: {
+  candidates: ResultCandidate[];
+  filters: Partial<SearchFilters>;
+  currentUserId?: string;
+  collabByPersonId?: Record<string, CollaborationState>;
+  jobs?: JobSummary[];
+  watchlists?: import("@/lib/collaborationApi").WatchlistSummary[];
+  onCollabChange?: (personId: string, updater: (prev: CollaborationState) => CollaborationState) => void;
+  onJobCreated?: (job: JobSummary) => void;
+  onWatchlistCreated?: (watchlist: import("@/lib/collaborationApi").WatchlistSummary) => void;
+  onError?: (message: string) => void;
+}) {
   const [sortCol, setSortCol] = useState<string>("score");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [explaining, setExplaining] = useState<ResultCandidate | null>(null);
+  const [detailCandidate, setDetailCandidate] = useState<ResultCandidate | null>(null);
 
   const sortedCandidates = [...candidates].sort((a, b) => {
     let valA = a[sortCol] ?? "";
@@ -161,16 +333,40 @@ export function ResultsTable({ candidates, filters }: { candidates: ResultCandid
         <TableBody>
           {sortedCandidates.map((candidate) => {
             const skills = JSON.parse(candidate.skills || "[]");
+            const collab = collabByPersonId[candidate.id] ?? EMPTY_COLLAB;
+            const viewedLabel = summarizeViewers(collab.viewedBy, currentUserId);
+            const pipelineLabel = summarizePipeline(collab.jobs);
             return (
               <TableRow key={candidate.id}>
                 <TableCell className="font-medium">
-                  <a href={candidate.profileUrl} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
+                  <button
+                    type="button"
+                    onClick={() => setDetailCandidate(candidate)}
+                    className="text-blue-600 hover:underline text-left"
+                  >
                     {candidate.fullName}
-                  </a>
+                  </button>
                   <div className="text-xs text-muted-foreground line-clamp-1">{candidate.headline}</div>
-                  {candidate.wasKnownBefore && (
-                    <Badge variant="outline" className="text-[10px] px-1 mt-1">Known before</Badge>
-                  )}
+                  <div className="mt-1 flex flex-wrap items-center gap-1">
+                    {candidate.wasKnownBefore && (
+                      <Badge variant="outline" className="text-[10px] px-1">Known before</Badge>
+                    )}
+                    {collab.favorited && (
+                      <span title="You favourited this person" className="text-amber-500 text-xs">★</span>
+                    )}
+                    <Badge
+                      variant={collab.viewedBy.length > 0 ? "secondary" : "outline"}
+                      className="text-[10px] px-1"
+                      title={viewedLabel}
+                    >
+                      {collab.viewedBy.length > 0 ? `👁 ${collab.viewedBy.length}` : "👁 –"}
+                    </Badge>
+                    {pipelineLabel && (
+                      <Badge variant="secondary" className="text-[10px] px-1" title={pipelineLabel}>
+                        {pipelineLabel}
+                      </Badge>
+                    )}
+                  </div>
                 </TableCell>
                 <TableCell>
                   {candidate.source ? (
@@ -214,8 +410,15 @@ export function ResultsTable({ candidates, filters }: { candidates: ResultCandid
                     {candidate.score}
                   </button>
                 </TableCell>
-                <TableCell className="text-right space-x-2">
-                  <Button variant="outline" size="sm">Add to Pipeline</Button>
+                <TableCell className="text-right">
+                  <RowActions
+                    candidate={candidate}
+                    collab={collab}
+                    jobs={jobs}
+                    onCollabChange={onCollabChange}
+                    onJobCreated={onJobCreated}
+                    onError={onError}
+                  />
                 </TableCell>
               </TableRow>
             );
@@ -223,6 +426,17 @@ export function ResultsTable({ candidates, filters }: { candidates: ResultCandid
         </TableBody>
       </Table>
       <ScoreExplanationDialog candidate={explaining} onOpenChange={(open) => !open && setExplaining(null)} />
+      <CandidateDetailDialog
+        candidate={detailCandidate}
+        currentUserId={currentUserId}
+        collab={detailCandidate ? collabByPersonId[detailCandidate.id] : undefined}
+        jobs={jobs}
+        watchlists={watchlists}
+        onOpenChange={(open) => !open && setDetailCandidate(null)}
+        onCollabChange={onCollabChange}
+        onJobCreated={onJobCreated}
+        onWatchlistCreated={onWatchlistCreated}
+      />
     </div>
   );
 }

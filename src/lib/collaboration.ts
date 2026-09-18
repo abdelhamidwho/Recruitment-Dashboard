@@ -207,7 +207,10 @@ export async function listWatchlistsFor(userId: string) {
 
 /** Loads a watchlist and enforces that userId may see it (owner, or shared). Throws 404 otherwise — never reveals existence of a private list belonging to someone else. */
 async function loadVisibleWatchlist(watchlistId: string, userId: string) {
-  const watchlist = await prisma.watchlist.findUnique({ where: { id: watchlistId } });
+  const watchlist = await prisma.watchlist.findUnique({
+    where: { id: watchlistId },
+    include: { owner: { select: { id: true, name: true, email: true } } },
+  });
   if (!watchlist || (watchlist.ownerId !== userId && !watchlist.isShared)) {
     throw new CollaborationError("Watchlist not found", 404);
   }
@@ -224,7 +227,13 @@ export async function getWatchlist(watchlistId: string, userId: string) {
   return { watchlist, items };
 }
 
-/** Only the owner may mutate a watchlist's membership or sharing. */
+/**
+ * Only the owner may share, unshare or delete a watchlist, or mutate a
+ * private one's membership. On a *shared* watchlist, any team member may
+ * add or remove people (see addToWatchlist/removeFromWatchlist) — sharing
+ * a watchlist is what turns it from "mine" into "the team's", and the
+ * YouTube-style pitch only works if everyone can actually add to it.
+ */
 async function requireOwnedWatchlist(watchlistId: string, userId: string) {
   const watchlist = await prisma.watchlist.findUnique({ where: { id: watchlistId } });
   if (!watchlist) throw new CollaborationError("Watchlist not found", 404);
@@ -234,8 +243,25 @@ async function requireOwnedWatchlist(watchlistId: string, userId: string) {
   return watchlist;
 }
 
+/**
+ * Membership mutation (add/remove) is allowed for the owner always, and for
+ * anyone else only once the list is shared — a private list stays
+ * owner-only, matching requireOwnedWatchlist's 403. Deliberately distinct
+ * from loadVisibleWatchlist (which 404s instead of 403ing, to avoid
+ * revealing a private list's existence at all) since here the caller is
+ * already known to have looked it up by id.
+ */
+async function requireWatchlistMemberAccess(watchlistId: string, userId: string) {
+  const watchlist = await prisma.watchlist.findUnique({ where: { id: watchlistId } });
+  if (!watchlist) throw new CollaborationError("Watchlist not found", 404);
+  if (watchlist.ownerId !== userId && !watchlist.isShared) {
+    throw new CollaborationError("Only the owner can modify this watchlist", 403);
+  }
+  return watchlist;
+}
+
 export async function addToWatchlist(watchlistId: string, personId: string, actorId: string) {
-  await requireOwnedWatchlist(watchlistId, actorId);
+  await requireWatchlistMemberAccess(watchlistId, actorId);
 
   const person = await prisma.person.findUnique({ where: { id: personId }, select: { id: true } });
   if (!person) throw new CollaborationError("Person not found", 404);
@@ -251,14 +277,25 @@ export async function addToWatchlist(watchlistId: string, personId: string, acto
 }
 
 export async function removeFromWatchlist(watchlistId: string, personId: string, actorId: string) {
-  await requireOwnedWatchlist(watchlistId, actorId);
+  await requireWatchlistMemberAccess(watchlistId, actorId);
   await prisma.watchlistItem.deleteMany({ where: { watchlistId, personId } });
   return { removed: true };
 }
 
 export async function setWatchlistSharing(watchlistId: string, actorId: string, isShared: boolean) {
   await requireOwnedWatchlist(watchlistId, actorId);
-  return prisma.watchlist.update({ where: { id: watchlistId }, data: { isShared } });
+  return prisma.watchlist.update({
+    where: { id: watchlistId },
+    data: { isShared },
+    include: { owner: { select: { id: true, name: true, email: true } } },
+  });
+}
+
+/** Deletes a watchlist and its items. Owner only. */
+export async function deleteWatchlist(watchlistId: string, actorId: string) {
+  await requireOwnedWatchlist(watchlistId, actorId);
+  await prisma.watchlist.delete({ where: { id: watchlistId } });
+  return { deleted: true };
 }
 
 // ---------------------------------------------------------------------------

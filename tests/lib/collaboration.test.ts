@@ -45,6 +45,7 @@ const {
   addToWatchlist,
   removeFromWatchlist,
   setWatchlistSharing,
+  deleteWatchlist,
   toggleFavorite,
   listFavorites,
   getCollaborationState,
@@ -194,6 +195,29 @@ describe('watchlists — authorisation', () => {
     expect(listForBAfter.map((w) => w.id)).toContain(watchlist.id)
     const seen = await getWatchlist(watchlist.id, userB)
     expect(seen.items.map((i) => i.personId)).toContain(person1)
+  })
+
+  it('on a shared watchlist, any team member can add and remove people, but only the owner can share/unshare/delete', async () => {
+    const watchlist = await createWatchlist(userA, 'Team list', true)
+
+    // userB (not the owner) can add and remove because the list is shared
+    await addToWatchlist(watchlist.id, person1, userB)
+    const seen = await getWatchlist(watchlist.id, userB)
+    expect(seen.items.map((i) => i.personId)).toContain(person1)
+    expect(seen.items.find((i) => i.personId === person1)?.addedById).toBe(userB)
+
+    await removeFromWatchlist(watchlist.id, person1, userB)
+    const afterRemove = await getWatchlist(watchlist.id, userB)
+    expect(afterRemove.items.map((i) => i.personId)).not.toContain(person1)
+
+    // but userB still cannot share/unshare or delete
+    await expect(setWatchlistSharing(watchlist.id, userB, false)).rejects.toMatchObject({ status: 403 })
+    await expect(deleteWatchlist(watchlist.id, userB)).rejects.toMatchObject({ status: 403 })
+
+    // the owner can still do everything, including delete
+    await addToWatchlist(watchlist.id, person2, userA)
+    await deleteWatchlist(watchlist.id, userA)
+    await expect(getWatchlist(watchlist.id, userA)).rejects.toMatchObject({ status: 404 })
   })
 
   it('adding the same person twice is idempotent', async () => {
