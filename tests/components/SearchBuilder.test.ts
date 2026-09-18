@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildQueryPreview, buildRankOnlyNote } from '@/components/SearchBuilder'
+import { buildQueryPreview, buildRankOnlyNote, hasRequiredTitle } from '@/components/SearchBuilder'
 import { buildGithubUserQuery } from '@/lib/sources/github'
 import { buildBooleanQuery } from '@/lib/buildBooleanQuery'
 
@@ -28,6 +28,34 @@ describe('buildQueryPreview', () => {
     const preview = buildQueryPreview('apify', filters)
     expect(preview).toBe(buildBooleanQuery(filters))
     expect(preview).not.toContain('type:user')
+  })
+})
+
+/**
+ * Covers the required-job-title gate: role presets were removed entirely
+ * (the owner objected to the app picking titles for them), so the user must
+ * always type at least one title themselves, and the search button stays
+ * disabled until they do.
+ */
+describe('hasRequiredTitle', () => {
+  it('is false when titles is missing entirely', () => {
+    expect(hasRequiredTitle({})).toBe(false)
+  })
+
+  it('is false when titles is an empty array', () => {
+    expect(hasRequiredTitle({ titles: [] })).toBe(false)
+  })
+
+  it('is false when titles only contains blank/whitespace strings', () => {
+    expect(hasRequiredTitle({ titles: ['', '   '] })).toBe(false)
+  })
+
+  it('is true once at least one non-blank title is present', () => {
+    expect(hasRequiredTitle({ titles: ['Backend Engineer'] })).toBe(true)
+  })
+
+  it('is true with a blank entry alongside a real title', () => {
+    expect(hasRequiredTitle({ titles: ['', 'Software Engineer'] })).toBe(true)
   })
 })
 

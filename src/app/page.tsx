@@ -1,7 +1,6 @@
 import { SearchBuilder } from "@/components/SearchBuilder";
 import { requireUser } from "@/lib/auth/requireUser";
 import skills from "@/data/skills.json";
-import rolePresets from "@/data/rolePresets.json";
 
 // Guards the page itself, not just the API routes it calls. Without this the
 // proxy's cookie-presence check is the only gate, so someone who still owes a
@@ -16,7 +15,7 @@ export default async function Home() {
         <h1 className="text-2xl font-bold tracking-tight">HR Sourcing Dashboard</h1>
         <p className="text-muted-foreground text-sm">Build searches, find candidates, and manage shortlists.</p>
       </header>
-      <SearchBuilder skillsTaxonomy={skills} rolePresets={rolePresets} />
+      <SearchBuilder skillsTaxonomy={skills} />
     </main>
   );
 }

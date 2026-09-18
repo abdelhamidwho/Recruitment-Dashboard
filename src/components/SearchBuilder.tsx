@@ -29,6 +29,17 @@ export function buildQueryPreview(sourceId: string, filters: Partial<SearchFilte
 }
 
 /**
+ * Whether the one field the user must always fill in themselves — job
+ * title(s) — has been filled in. The owner explicitly rejected the app
+ * picking titles for them (role presets), so this is the sole required
+ * field and gates the search button. Pure so the disabled-state logic is
+ * unit-testable without rendering the component.
+ */
+export function hasRequiredTitle(filters: Partial<SearchFilters>): boolean {
+  return (filters.titles || []).some((t) => typeof t === "string" && t.trim().length > 0);
+}
+
+/**
  * Composes the short, plain-language note telling the user that some
  * filters aren't used to find candidates for this source, but are still
  * used to rank them (see CandidateSource.describeRankOnlyFilters). Returns
@@ -86,24 +97,10 @@ interface SkillCategory {
   skills: string[];
 }
 
-interface RolePreset {
-  id: string;
-  label: string;
-  titles?: string[];
-  seniority?: string[];
-  mustHave?: string[];
-  niceToHave?: string[];
-  exclude?: string[];
-  yearsMin?: number;
-  yearsMax?: number;
-}
-
 export function SearchBuilder({
   skillsTaxonomy,
-  rolePresets,
 }: {
   skillsTaxonomy: SkillCategory[];
-  rolePresets: RolePreset[];
 }) {
   const [filters, setFilters] = React.useState<Partial<SearchFilters>>({
     titles: [],
@@ -192,24 +189,6 @@ export function SearchBuilder({
   const previewQuery = isGithubSource ? buildQueryPreview(source, filters) : customQuery;
   const previewLabel = isGithubSource ? "GitHub Query Preview" : "Boolean Preview";
 
-  const handleApplyPreset = (presetId: string) => {
-    const preset = rolePresets.find((p) => p.id === presetId);
-    if (!preset) return;
-    
-    setFilters((prev) => ({
-      ...prev,
-      rolePreset: preset.id,
-      titles: [...new Set([...(prev.titles || []), ...(preset.titles || [])])],
-      seniority: [...new Set([...(prev.seniority || []), ...(preset.seniority || [])])],
-      mustHave: [...new Set([...(prev.mustHave || []), ...(preset.mustHave || [])])],
-      niceToHave: [...new Set([...(prev.niceToHave || []), ...(preset.niceToHave || [])])],
-      exclude: [...new Set([...(prev.exclude || []), ...(preset.exclude || [])])],
-      yearsMin: preset.yearsMin ?? prev.yearsMin,
-      yearsMax: preset.yearsMax ?? prev.yearsMax,
-    }));
-    setIsCustom(false);
-  };
-
   const updateFilter = <K extends keyof SearchFilters>(key: K, value: SearchFilters[K]) => {
     setFilters((prev) => ({ ...prev, [key]: value }));
   };
@@ -220,6 +199,11 @@ export function SearchBuilder({
     if (k === 'limit') return false;
     return Boolean(v);
   }).length;
+
+  // The user must always type the job title(s) themselves — see AGENTS.md /
+  // the owner's request: role presets are gone, so the title is now the one
+  // required field and the search button stays disabled without it.
+  const hasTitle = hasRequiredTitle(filters);
 
   const [isSearching, setIsSearching] = React.useState(false);
   const [searchResults, setSearchResults] = React.useState<ResultCandidate[]>([]);
@@ -249,6 +233,7 @@ export function SearchBuilder({
   };
 
   const handleSearch = async () => {
+    if (!hasTitle) return;
     cancelledRef.current = false;
     setIsSearching(true);
     setSearchStatus(`Searching ${selectedSource?.label || source}...`);
@@ -326,30 +311,22 @@ export function SearchBuilder({
         {/* Left panel: Filter Builder */}
         <div className="flex-1 space-y-6 overflow-y-auto pr-4">
           <div>
-            <h2 className="text-lg font-semibold mb-2">Role Preset</h2>
-            <div className="flex flex-wrap gap-2">
-              {rolePresets.map((preset) => (
-                <Button
-                  key={preset.id}
-                  variant={filters.rolePreset === preset.id ? "default" : "outline"}
-                  onClick={() => handleApplyPreset(preset.id)}
-                >
-                  {preset.label}
-                </Button>
-              ))}
-            </div>
+            <label className="text-sm font-medium">
+              Job Title <span className="text-red-600">*</span>
+            </label>
+            <MultiSelectChips
+              options={[]} // always free text — the user always writes their own title
+              value={filters.titles || []}
+              onChange={(val) => updateFilter("titles", val)}
+              placeholder='Type a title and press Enter, e.g. "Backend Engineer"'
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              Required — type the job title(s) you&apos;re hiring for. You can add more than one, e.g. &quot;Backend
+              Engineer&quot; and &quot;Software Engineer&quot;.
+            </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm font-medium">Job Titles</label>
-              <MultiSelectChips
-                options={[]} // purely custom for now
-                value={filters.titles || []}
-                onChange={(val) => updateFilter("titles", val)}
-                placeholder="e.g. Software Engineer"
-              />
-            </div>
             <div>
               <label className="text-sm font-medium">Location</label>
               <MultiSelectChips
@@ -485,9 +462,14 @@ export function SearchBuilder({
             {rankOnlyNote && (
               <p className="text-xs text-muted-foreground">{rankOnlyNote}</p>
             )}
-            <Button className="w-full" size="lg" onClick={handleSearch} disabled={isSearching}>
+            <Button className="w-full" size="lg" onClick={handleSearch} disabled={isSearching || !hasTitle}>
               {isSearching ? "Searching..." : `Search ${selectedSource?.label || ""}`}
             </Button>
+            {!hasTitle && !isSearching && (
+              <p className="text-xs text-center text-amber-600 dark:text-amber-500">
+                Add a job title above to search — it&apos;s the one thing you always have to enter yourself.
+              </p>
+            )}
             {isSearching && (
               <Button variant="outline" className="w-full" onClick={handleCancelSearch}>
                 Cancel

@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import skills from "@/data/skills.json";
-import rolePresets from "@/data/rolePresets.json";
 import { requireApiUser } from "@/lib/auth/requireUser";
 
 export async function GET() {
@@ -9,6 +8,5 @@ export async function GET() {
 
   return NextResponse.json({
     skills,
-    presets: rolePresets,
   });
 }
