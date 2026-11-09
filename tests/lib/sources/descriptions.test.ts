@@ -79,8 +79,8 @@ describe("GitHub's description", () => {
 })
 
 describe("Apify/LinkedIn's description", () => {
-  it('is honest that it is not configured/ready', () => {
-    expect(APIFY_SOURCE_DESCRIPTION.readyNow).toBe(false)
+  it('describes the live actor and its paid cost', () => {
+    expect(APIFY_SOURCE_DESCRIPTION.readyNow).toBe(true)
     expect(APIFY_SOURCE_DESCRIPTION.cost.toLowerCase()).toContain('paid')
     expect(APIFY_SOURCE_DESCRIPTION.searches).toContain('LinkedIn')
   })

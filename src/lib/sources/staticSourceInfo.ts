@@ -12,27 +12,26 @@ import { SourceDescription } from "./types";
  */
 export const APIFY_SOURCE_DESCRIPTION: SourceDescription = {
   searches:
-    "Once configured, scrapes LinkedIn profiles using an Apify actor you choose — this is the only " +
-    "source here that reaches LinkedIn.",
+    "Scrapes LinkedIn profiles through the configured Apify actor (HarvestAPI profile search) — " +
+    "this is the only source here that reaches LinkedIn.",
   reliablyReturns: [
-    "Depends entirely on the actor you configure — not yet verified against a real actor's output.",
+    "Name, headline, current job and company, location, skills, experience, education, " +
+      "certifications and languages (Full mode).",
   ],
   cannotProvide: [
-    "Nothing is confirmed yet: the field mapping (buildActorInput()/mapToCandidate() in " +
-      "src/lib/apify.ts) is a provisional placeholder for a generic LinkedIn scraper actor, not " +
-      "checked against your chosen actor's real input/output schema.",
+    "Some profiles are skipped when LinkedIn rate-limits the actor, so a run can return fewer " +
+      "profiles than requested.",
   ],
   cost: "Paid — billed per profile scraped, through your own Apify account.",
   setupAndLimits:
-    "Requires an Apify account, an APIFY_TOKEN, and an APIFY_ACTOR_ID you choose. Run " +
-    "`npm run apify:probe` to verify the actor's real input/output shape, then set " +
-    "APIFY_ACTOR_INPUT_VERIFIED=true before a real (billed) run is allowed. Until then, searches " +
-    "against this source return mock data only.",
-  readyNow: false,
+    "Needs APIFY_TOKEN, APIFY_ACTOR_ID and APIFY_ACTOR_INPUT_VERIFIED=true in .env. Apify's free " +
+    "plan stops this actor after 10 runs; a paid plan lifts that.",
+  readyNow: true,
   notes: [
-    "Not configured in this deployment yet — live runs are deliberately blocked until the actor " +
-      "input mapping above is explicitly verified, so a malformed request can't be sent (and billed) " +
-      "before anyone has checked it.",
+    "Write locations as City, Country (for example \"Giza, Egypt\") — a bare city name often matches the wrong country. " +
+      "Uses the HarvestAPI profile-search actor. On Apify's free plan the actor stops after 10 runs; " +
+      "a paid plan is needed beyond that. Title and location narrow what is scraped; seniority, " +
+      "years, must-have skills and excluded titles are also sent, so many filters can return nothing.",
   ],
 };
 

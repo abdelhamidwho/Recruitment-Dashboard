@@ -1,11 +1,13 @@
 import { CandidateSource } from "./types";
 import { githubSource } from "./github";
+import { linkedinXraySource } from "./linkedinXray";
 
 // Registry of candidate sources. Deliberately does NOT register/import the
 // Apify (LinkedIn) source — that module is owned by a concurrent change and
 // will be wired in separately once it's adapted to this contract.
 const REGISTRY: Record<string, CandidateSource> = {
   [githubSource.id]: githubSource,
+  [linkedinXraySource.id]: linkedinXraySource,
 };
 
 /** Looks up a source by id, throwing a clear error on an unknown one rather

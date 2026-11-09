@@ -35,12 +35,12 @@ export function CreateUserForm() {
         {pending ? 'Creating…' : 'Add user'}
       </Button>
       {state?.error ? (
-        <p role="alert" className="w-full text-sm text-red-600">
+        <p role="alert" className="w-full text-sm text-destructive">
           {state.error}
         </p>
       ) : null}
       {state?.created ? (
-        <p className="w-full text-sm text-green-700">Created {state.created}</p>
+        <p className="w-full text-sm text-chart-2">Created {state.created}</p>
       ) : null}
     </form>
   )

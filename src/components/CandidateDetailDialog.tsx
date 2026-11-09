@@ -344,7 +344,7 @@ function CandidateDetailBody({
             </ul>
           </div>
         )}
-        <a href={candidate.profileUrl} target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:underline">
+        <a href={candidate.profileUrl} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline">
           View original profile
         </a>
       </section>

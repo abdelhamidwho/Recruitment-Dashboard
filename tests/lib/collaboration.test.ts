@@ -1,33 +1,9 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import Database from 'better-sqlite3'
-import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { PrismaClient } from '../../generated/prisma/client'
+import type { PrismaClient } from '../../generated/prisma/client'
+import { createTestDb, hasTestDb } from '../helpers/pgTestDb'
 
-/** Mirrors tests/lib/profileStorage.test.ts: apply every migration to a fresh temp sqlite file. */
-function applyAllMigrations(file: string): void {
-  const root = join(process.cwd(), 'prisma', 'migrations')
-  const dirs = readdirSync(root)
-    .filter((name) => name !== 'migration_lock.toml')
-    .sort()
-  const db = new Database(file)
-  try {
-    for (const dir of dirs) {
-      const sql = readFileSync(join(root, dir, 'migration.sql'), 'utf8')
-      db.exec(sql)
-    }
-  } finally {
-    db.close()
-  }
-}
-
-const tempDir = mkdtempSync(join(tmpdir(), 'hrd-collaboration-'))
-const dbFile = join(tempDir, 'test.db')
-applyAllMigrations(dbFile)
-const adapter = new PrismaBetterSqlite3({ url: `file:${dbFile}` })
-const testPrisma = new PrismaClient({ adapter })
+const db = hasTestDb ? await createTestDb() : undefined
+const testPrisma = db?.prisma as PrismaClient
 
 vi.mock('@/lib/prisma', () => ({ prisma: testPrisma }))
 
@@ -59,6 +35,7 @@ let person2: string
 let person3: string
 
 beforeAll(async () => {
+  if (!hasTestDb) return
   const a = await testPrisma.user.create({
     data: { email: 'sara@example.com', name: 'Sara', passwordHash: 'x' },
   })
@@ -83,11 +60,10 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  await testPrisma.$disconnect()
-  rmSync(tempDir, { recursive: true, force: true })
+  await db?.cleanup()
 })
 
-describe('jobs & pipeline', () => {
+describe.skipIf(!hasTestDb)('jobs & pipeline', () => {
   it('creates a job and adds a candidate at the default stage, recording an initial StageEvent', async () => {
     const job = await createJob(userA, { title: 'Backend Engineer' })
     const candidate = await addCandidateToJob(job.id, person1, userA)
@@ -151,7 +127,7 @@ describe('jobs & pipeline', () => {
   })
 })
 
-describe('profile views', () => {
+describe.skipIf(!hasTestDb)('profile views', () => {
   it('records a view once, then a second view by the same user increments viewCount instead of creating a row', async () => {
     await recordView(person3, userA)
     const second = await recordView(person3, userA)
@@ -171,7 +147,7 @@ describe('profile views', () => {
   })
 })
 
-describe('watchlists — authorisation', () => {
+describe.skipIf(!hasTestDb)('watchlists — authorisation', () => {
   it('a private watchlist is invisible to another user, and visible once shared', async () => {
     const watchlist = await createWatchlist(userA, 'Sara private list', false)
     await addToWatchlist(watchlist.id, person1, userA)
@@ -232,7 +208,7 @@ describe('watchlists — authorisation', () => {
   })
 })
 
-describe('favorites — authorisation & idempotency', () => {
+describe.skipIf(!hasTestDb)('favorites — authorisation & idempotency', () => {
   it("one user's favourites are invisible to another", async () => {
     await toggleFavorite(userA, person1)
     const favA = await listFavorites(userA)
@@ -260,7 +236,7 @@ describe('favorites — authorisation & idempotency', () => {
   })
 })
 
-describe('batch collaboration state', () => {
+describe.skipIf(!hasTestDb)('batch collaboration state', () => {
   it('returns per-person state in a fixed number of queries, not one per candidate', async () => {
     const job = await createJob(userA, { title: 'Batch Role' })
     await addCandidateToJob(job.id, person1, userA)

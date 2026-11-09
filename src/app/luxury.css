@@ -1,0 +1,139 @@
+/* ── IDH brand theme ─────────────────────────────────────────────
+   One light theme built from the IDH palette:
+     #a50d1a  deep red   (primary actions)
+     #b11e28  red        (hover, accents)
+     #d97e85  soft red   (highlights, soft fills)
+     #a6a6a6  grey       (borders, secondary text)
+     #f2f2f2  light grey (page background)
+   Every shadcn token is defined here so components pick it up automatically.
+   The --gold-* names are kept as aliases so existing markup keeps working. */
+:root {
+  --brand-deep: #a50d1a;
+  --brand: #b11e28;
+  --brand-soft: #d97e85;
+  --brand-tint: #f7dcde;
+  --grey: #a6a6a6;
+  --grey-light: #f2f2f2;
+  --ink: #2a2224;
+
+  --background: #f2f2f2;
+  --foreground: #2a2224;
+  --card: #ffffff;
+  --card-foreground: #2a2224;
+  --popover: #ffffff;
+  --popover-foreground: #2a2224;
+  --primary: #a50d1a;
+  --primary-foreground: #ffffff;
+  --secondary: #ffffff;
+  --secondary-foreground: #a50d1a;
+  --muted: #ebe6e6;
+  --muted-foreground: #5f5658;
+  --accent: #f7dcde;
+  --accent-foreground: #7d0a14;
+  --destructive: #a50d1a;
+  --border: #d4cfcf;
+  --input: #a6a6a6;
+  --ring: #b11e28;
+  --chart-1: #a50d1a;
+  --chart-2: #b11e28;
+  --chart-3: #d97e85;
+  --chart-4: #a6a6a6;
+  --chart-5: #6f6f6f;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #2a2224;
+  --sidebar-primary: #a50d1a;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #f7dcde;
+  --sidebar-accent-foreground: #7d0a14;
+  --sidebar-border: #d4cfcf;
+  --sidebar-ring: #b11e28;
+  --radius: 0.75rem;
+
+  --gold-1: #d97e85;
+  --gold-2: #b11e28;
+  --gold-3: #a50d1a;
+  --glow: rgb(165 13 26 / 18%);
+  --hairline: linear-gradient(90deg, #a50d1a, #d97e85 60%, transparent);
+}
+
+html { font-size: 17px; }
+
+body { line-height: 1.55; }
+
+/* headings use the same friendly sans as the rest of the app */
+h1, h2, .font-display {
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.01em;
+}
+h1 { font-weight: 700; }
+
+::selection { background: var(--brand-soft); color: #fff; }
+
+/* brand text: solid deep red, no animation */
+.lux-gold-text { color: var(--brand-deep); }
+
+.lux-hairline { height: 3px; border: 0; border-radius: 2px; background: var(--hairline); }
+
+/* one quiet entrance, nothing that moves while reading */
+.lux-rise { animation: lux-fade 0.35s ease both; }
+@keyframes lux-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes lux-draw { to { stroke-dashoffset: 0; } }
+@keyframes lux-breathe { 0%, 100% { opacity: 1; } }
+@keyframes lux-sweep { 0%, 100% { opacity: 0; } }
+
+/* tables: clear hover so a row is easy to follow across the screen */
+tbody tr { transition: background-color 0.15s ease; }
+tbody tr:hover { background-color: var(--accent); }
+
+/* primary buttons: solid brand red, darker-to-lighter on hover */
+button[class*="bg-primary"]:not(:disabled) {
+  background-color: var(--brand-deep);
+  box-shadow: 0 2px 6px -2px var(--glow);
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+button[class*="bg-primary"]:not(:disabled):hover {
+  background-color: var(--brand);
+  box-shadow: 0 4px 12px -4px var(--glow);
+}
+
+/* panels */
+.lux-card { transition: box-shadow 0.2s ease, border-color 0.2s ease; }
+.lux-card:hover { border-color: var(--brand-soft); box-shadow: 0 8px 24px -12px var(--glow); }
+
+input, textarea {
+  background-color: #fff;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+input:focus-visible, textarea:focus-visible { box-shadow: 0 0 0 3px var(--glow); }
+
+/* strong, obvious keyboard focus */
+:focus-visible { outline: 3px solid var(--brand-soft); outline-offset: 2px; }
+
+[role="dialog"] { box-shadow: 0 24px 80px -24px rgb(0 0 0 / 40%), 0 0 0 1px var(--border); }
+
+* { scrollbar-width: thin; scrollbar-color: var(--grey) transparent; }
+
+/* top navigation: big icon over/beside a plain-language label */
+.lux-nav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 1rem;
+  border-radius: 0.75rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--foreground);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.lux-nav-link svg { width: 1.6rem; height: 1.6rem; color: var(--brand); flex-shrink: 0; }
+.lux-nav-link:hover { background: var(--accent); color: var(--brand-deep); }
+.lux-nav-link[aria-current="page"] { background: var(--brand-deep); color: #fff; }
+.lux-nav-link[aria-current="page"] svg { color: #fff; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

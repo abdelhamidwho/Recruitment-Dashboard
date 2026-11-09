@@ -1,5 +1,7 @@
+import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { requireUser } from "@/lib/auth/requireUser";
+import { PageHeader } from "@/components/PageHeader";
 import { PipelineBoard } from "@/components/PipelineBoard";
 
 export default async function JobPipelinePage({ params }: { params: Promise<{ jobId: string }> }) {
@@ -7,9 +9,10 @@ export default async function JobPipelinePage({ params }: { params: Promise<{ jo
   const { jobId } = await params;
   return (
     <main className="min-h-screen bg-background">
-      <header className="border-b px-6 py-4">
-        <Link href="/jobs" className="text-sm underline">← All jobs</Link>
-      </header>
+      <>
+        <PageHeader />
+        <Link href="/jobs" className="lux-nav-link mx-6 mt-4 inline-block"><ArrowLeft aria-hidden />All jobs</Link>
+      </>
       <PipelineBoard jobId={jobId} />
     </main>
   );

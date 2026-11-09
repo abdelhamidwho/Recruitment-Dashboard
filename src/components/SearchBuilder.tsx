@@ -113,9 +113,11 @@ interface SkillCategory {
 export function SearchBuilder({
   skillsTaxonomy,
   currentUserId,
+  apifyAvailable = false,
 }: {
   skillsTaxonomy: SkillCategory[];
   currentUserId: string;
+  apifyAvailable?: boolean;
 }) {
   const [filters, setFilters] = React.useState<Partial<SearchFilters>>({
     titles: [],
@@ -149,7 +151,8 @@ export function SearchBuilder({
   // FilterRail/ResultsArea).
   const [facetSelection, setFacetSelection] = React.useState<FacetSelection>({});
 
-  const selectedSource = SOURCE_OPTIONS.find((s) => s.id === source);
+  const sourceOptions = apifyAvailable ? SOURCE_OPTIONS : SOURCE_OPTIONS.filter((s) => s.id !== "apify");
+  const selectedSource = sourceOptions.find((s) => s.id === source);
   // Filters the user has actually set that the chosen source cannot act on
   // at all — surfaced near the search button so a filter isn't silently
   // dropped without the user knowing.
@@ -206,6 +209,7 @@ export function SearchBuilder({
   };
 
   const activeFiltersCount = Object.entries(filters).filter(([k, v]) => {
+    if (k === 'portals') return false; // a source setting, not a candidate filter
     if (Array.isArray(v)) return v.length > 0;
     if (k === 'yearsMin' || k === 'yearsMax') return false; // Don't count default ranges
     if (k === 'limit') return false;
@@ -295,6 +299,22 @@ export function SearchBuilder({
     setIsSearching(false);
   };
 
+  // Opens an existing run read-only, e.g. /?run=<id> after a LinkedIn import.
+  React.useEffect(() => {
+    const runId = new URLSearchParams(window.location.search).get("run");
+    if (!runId) return;
+    fetch(`/api/search/${runId}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.status !== "SUCCEEDED") return;
+        setCurrentRunId(runId);
+        setSearchResults(d.candidates || []);
+        setSearchStatus("Loaded imported run.");
+        setHasSearchedOnce(true);
+      })
+      .catch(() => {});
+  }, []);
+
   const handleSearch = async () => {
     if (!hasTitle) return;
     cancelledRef.current = false;
@@ -344,7 +364,15 @@ export function SearchBuilder({
 
         if (status === "SUCCEEDED") {
           setSearchResults(pollData.candidates || []);
-          setSearchStatus("Done!");
+          const hidden: number = pollData.excludedCount || 0;
+          const why: string[] = [...new Set<string>((pollData.excludedSample || []).flatMap((e: { reasons: string[] }) => e.reasons))];
+          setSearchStatus(
+            hidden > 0
+              ? `Done! ${hidden} candidate${hidden === 1 ? "" : "s"} hidden because they failed a requirement` +
+                  (why.length ? ` (e.g. ${why.slice(0, 3).join("; ")})` : "") +
+                  ". Remove or fix those requirements to see them."
+              : "Done!",
+          );
           setIsSearching(false);
           setHasSearchedOnce(true);
           return;
@@ -367,6 +395,48 @@ export function SearchBuilder({
       setSearchStatus(`Error: ${message}`);
     }
     setIsSearching(false);
+  };
+
+  // Deep scan: sends the best LinkedIn candidates of this run to Apify for full
+  // details (work history, skills, education), then reloads the run's results.
+  const [isDeepScanning, setIsDeepScanning] = React.useState(false);
+  const handleDeepScan = async () => {
+    if (!currentRunId || isDeepScanning) return;
+    setIsDeepScanning(true);
+    try {
+      setSearchStatus("Deep scan: starting…");
+      const startRes = await fetch("/api/deep-scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ searchRunId: currentRunId, count: 10 }),
+      });
+      const start = await startRes.json();
+      if (start.error) throw new Error(start.error);
+
+      const query = new URLSearchParams({
+        searchRunId: currentRunId,
+        datasetId: start.datasetId,
+        urls: start.urls.join(","),
+      });
+      const startedAt = Date.now();
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 4000));
+        const res = await fetch(`/api/deep-scan/${start.runId}?${query}`);
+        const poll = await res.json();
+        if (poll.status === "SUCCEEDED") break;
+        if (poll.failureReason || poll.error) throw new Error(poll.failureReason || poll.error);
+        if (Date.now() - startedAt > 5 * 60 * 1000) throw new Error("Deep scan took too long; try again later.");
+        setSearchStatus(`Deep scan: reading ${start.count} profiles… (${Math.round((Date.now() - startedAt) / 1000)}s)`);
+      }
+
+      const refreshed = await (await fetch(`/api/search/${currentRunId}`)).json();
+      setSearchResults(refreshed.candidates || []);
+      setSearchStatus(`Deep scan done: ${start.count} profile${start.count === 1 ? "" : "s"} now have full details.`);
+    } catch (err) {
+      setSearchStatus(`Deep scan failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsDeepScanning(false);
+    }
   };
 
   const handleClearAll = () => {
@@ -405,7 +475,7 @@ export function SearchBuilder({
   };
 
   return (
-    <div className="flex flex-col h-full p-6">
+    <div className="flex flex-col h-full p-6 max-w-[96rem] w-full mx-auto">
       <SearchControls
         filters={filters}
         updateFilter={updateFilter}
@@ -418,7 +488,7 @@ export function SearchBuilder({
           setIsCustom(true);
         }}
         isCustom={isCustom}
-        sourceOptions={SOURCE_OPTIONS}
+        sourceOptions={sourceOptions}
         source={source}
         setSource={setSource}
         selectedSource={selectedSource}
@@ -470,6 +540,13 @@ export function SearchBuilder({
             onJobCreated={(job) => setJobs((prev) => [job, ...prev.filter((j) => j.id !== job.id)])}
             onWatchlistCreated={(wl) => setWatchlists((prev) => [wl, ...prev.filter((w) => w.id !== wl.id)])}
             onError={setCollabError}
+            canDeepScan={
+              apifyAvailable &&
+              !isSearching &&
+              searchResults.some((c) => /linkedin\.com\/in\//i.test(c.profileUrl))
+            }
+            isDeepScanning={isDeepScanning}
+            onDeepScan={handleDeepScan}
           />
         </div>
       </div>

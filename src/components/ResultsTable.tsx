@@ -85,8 +85,8 @@ function parseBreakdownLine(line: string): { tone: "positive" | "negative" | "ne
 
 const TONE_CLASSES: Record<string, string> = {
   positive: "text-emerald-700 dark:text-emerald-400",
-  negative: "text-red-600 dark:text-red-400",
-  excluded: "text-red-600 dark:text-red-400",
+  negative: "text-destructive dark:text-red-400",
+  excluded: "text-destructive dark:text-red-400",
   neutral: "text-muted-foreground",
 };
 
@@ -342,7 +342,7 @@ export function ResultsTable({
                   <button
                     type="button"
                     onClick={() => setDetailCandidate(candidate)}
-                    className="text-blue-600 hover:underline text-left"
+                    className="text-primary hover:underline text-left"
                   >
                     {candidate.fullName}
                   </button>
@@ -352,7 +352,7 @@ export function ResultsTable({
                       <Badge variant="outline" className="text-[10px] px-1">Known before</Badge>
                     )}
                     {collab.favorited && (
-                      <span title="You favourited this person" className="text-amber-500 text-xs">★</span>
+                      <span title="You favourited this person" className="text-[var(--brand)] text-base">★</span>
                     )}
                     <Badge
                       variant={collab.viewedBy.length > 0 ? "secondary" : "outline"}

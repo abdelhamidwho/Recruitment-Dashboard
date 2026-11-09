@@ -75,7 +75,7 @@ export function WatchlistsPage({ currentUserId }: { currentUserId: string }) {
           {watchlists.map((w) => (
             <li key={w.id} className="p-3 flex items-center justify-between gap-2">
               <div>
-                <Link href={`/watchlists/${w.id}`} className="font-medium text-blue-600 hover:underline">
+                <Link href={`/watchlists/${w.id}`} className="font-medium text-primary hover:underline">
                   {w.name}
                 </Link>
                 <span className="text-xs text-muted-foreground ml-2">

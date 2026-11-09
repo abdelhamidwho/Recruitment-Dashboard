@@ -95,7 +95,7 @@ export function MultiSelectChips({
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap gap-1">
         {selectedLabels.map((label, idx) => (
-          <Badge key={value[idx]} variant="secondary" className="px-1 font-normal text-xs flex items-center gap-1">
+          <Badge key={value[idx]} variant="secondary" className="px-2 font-medium text-base flex items-center gap-1">
             {label}
             <button
               className="ring-offset-background rounded-full outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 hover:bg-muted"
@@ -108,7 +108,7 @@ export function MultiSelectChips({
               }}
               onClick={() => handleUnselect(value[idx])}
             >
-              <X className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+              <X className="h-4 w-4 text-muted-foreground hover:text-foreground" />
             </button>
           </Badge>
         ))}
@@ -116,7 +116,7 @@ export function MultiSelectChips({
       
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger
-          className={cn("w-full justify-between", "inline-flex shrink-0 items-center justify-center rounded-lg border border-border bg-background px-2.5 h-8 text-sm font-medium transition-all hover:bg-muted focus-visible:border-ring")}
+          className={cn("w-full justify-between", "inline-flex shrink-0 items-center justify-center rounded-lg border border-border bg-background px-3 h-12 text-base font-medium text-muted-foreground border-input transition-all hover:bg-muted focus-visible:border-ring")}
           role="combobox"
           aria-expanded={open}
         >

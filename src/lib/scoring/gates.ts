@@ -54,7 +54,9 @@ export function applyGates(
   const reasons: string[] = [];
 
   const unsupported = unsupportedFieldsFor(sourceId);
-  const skillsUnverifiable = unsupported.has("skills");
+  // A source-level gap, or a source that returned only a partial skills list
+  // for this candidate (e.g. a few "top skills"): absence is not evidence.
+  const skillsUnverifiable = unsupported.has("skills") || candidate.skillsComplete === false;
 
   const mustHave = (filters.mustHave ?? []).map((s) => s?.trim()).filter((s): s is string => Boolean(s));
   const fields = textFields(candidate);

@@ -17,6 +17,8 @@ export interface SearchFilters {
   languages: string[];
   certifications: string[];
   limit: number;
+  /** Portals for the Google-based source: ids from XRAY_PORTALS (default: LinkedIn only). */
+  portals?: string[];
 }
 
 export function buildBooleanQuery(filters: Partial<SearchFilters>): string {

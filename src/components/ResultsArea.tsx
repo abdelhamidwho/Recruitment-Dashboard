@@ -1,11 +1,20 @@
 "use client";
 
+import * as React from "react";
+import { Type, MousePointerClick, Search, Heart, Download } from "lucide-react";
 import { ResultsTable, ResultCandidate } from "./ResultsTable";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SearchFilters } from "@/lib/buildBooleanQuery";
 import type { CollaborationState } from "@/lib/collaboration";
 import type { JobSummary, WatchlistSummary } from "@/lib/collaborationApi";
+
+const STEPS: { Icon: React.ElementType; title: string; text: string }[] = [
+  { Icon: Type, title: "Type the job title", text: "For example “Accountant” or “Sales Manager”." },
+  { Icon: MousePointerClick, title: "Pick where to look", text: "Choose one of the sources above." },
+  { Icon: Search, title: "Press Find candidates", text: "Your results appear here, ranked best first." },
+  { Icon: Heart, title: "Save the good ones", text: "Mark favourites or add people to a job or watchlist." },
+];
 
 /**
  * The results area that fills the rest of the screen next to the filter
@@ -31,6 +40,9 @@ export function ResultsArea({
   onJobCreated,
   onWatchlistCreated,
   onError,
+  canDeepScan = false,
+  isDeepScanning = false,
+  onDeepScan,
 }: {
   totalCount: number;
   visibleCandidates: ResultCandidate[];
@@ -48,28 +60,39 @@ export function ResultsArea({
   onJobCreated: (job: JobSummary) => void;
   onWatchlistCreated: (watchlist: WatchlistSummary) => void;
   onError: (message: string) => void;
+  canDeepScan?: boolean;
+  isDeepScanning?: boolean;
+  onDeepScan?: () => void;
 }) {
   if (totalCount === 0) {
     if (!hasSearchedOnce) {
       return (
-        <div className="flex-1 flex items-center justify-center text-center px-8">
-          <div className="max-w-sm">
-            <h2 className="text-lg font-semibold mb-1">No search yet</h2>
-            <p className="text-sm text-muted-foreground">
-              Add a job title, pick a source, and search — results and filter counts will appear here.
-            </p>
-          </div>
+        <div className="flex-1 rounded-2xl border bg-card p-8 shadow-sm">
+          <h2 className="text-2xl font-bold mb-5">How it works</h2>
+          <ol className="space-y-5">
+            {STEPS.map(({ Icon, title, text }) => (
+              <li key={title} className="flex items-center gap-4">
+                <span className="grid size-14 shrink-0 place-items-center rounded-2xl bg-[var(--brand-tint)]">
+                  <Icon aria-hidden className="size-8 text-[var(--brand-deep)]" />
+                </span>
+                <span>
+                  <span className="block text-lg font-semibold">{title}</span>
+                  <span className="block text-base text-muted-foreground">{text}</span>
+                </span>
+              </li>
+            ))}
+          </ol>
         </div>
       );
     }
     return (
       <div className="flex-1 flex items-center justify-center text-center px-8">
         <div className="max-w-md">
-          <h2 className="text-lg font-semibold mb-1">No candidates matched this search</h2>
+          <h2 className="text-2xl font-bold mb-2">No candidates matched this search</h2>
           <p className="text-sm text-muted-foreground">
             {isGithubSource
-              ? "GitHub ANDs every must-have term together, so it's easy to over-narrow. Try removing a must-have skill or two — fewer must-haves usually surfaces more candidates."
-              : "Try widening your filters — fewer must-have requirements usually surfaces more candidates."}
+              ? "Nobody matched every skill you required. Try removing one or two “must have” skills — fewer requirements usually finds more people."
+              : "Try removing some filters — fewer requirements usually finds more people."}
           </p>
         </div>
       </div>
@@ -77,10 +100,10 @@ export function ResultsArea({
   }
 
   return (
-    <div className="flex-1 min-w-0 overflow-y-auto pl-6">
+    <div className="flex-1 min-w-0">
       <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
         <div className="flex items-center gap-2 flex-wrap">
-          <h2 className="text-2xl font-bold">
+          <h2 className="text-3xl font-bold">
             {activeFacetCount > 0 ? `${visibleCandidates.length} of ${totalCount}` : totalCount} candidate
             {totalCount === 1 ? "" : "s"}
           </h2>
@@ -93,12 +116,22 @@ export function ResultsArea({
             </>
           )}
         </div>
+        {canDeepScan && onDeepScan && (
+          <Button
+            onClick={onDeepScan}
+            disabled={isDeepScanning}
+            title="Reads the full LinkedIn profile (work history, skills, education) of the 10 best candidates still missing it. Paid Apify: about 4 cents for 10."
+          >
+            {isDeepScanning ? "Reading profiles…" : "Read full profiles of top 10"}
+          </Button>
+        )}
         <a
           href={`/api/export?searchRunId=${currentRunId}`}
           download
-          className="inline-flex shrink-0 items-center justify-center rounded-lg border border-border bg-background px-2.5 h-8 text-sm font-medium transition-all hover:bg-muted focus-visible:border-ring"
+          className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border-2 border-[var(--brand-deep)] bg-white text-[var(--brand-deep)] px-4 h-11 text-base font-semibold transition-all hover:bg-muted focus-visible:border-ring"
         >
-          Export CSV
+          <Download aria-hidden className="size-5" />
+          Download as spreadsheet
         </a>
       </div>
       {visibleCandidates.length === 0 ? (

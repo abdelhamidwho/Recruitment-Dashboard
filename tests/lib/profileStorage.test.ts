@@ -1,42 +1,13 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import Database from 'better-sqlite3'
-import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3'
 import { afterAll, describe, expect, it, vi } from 'vitest'
-import { PrismaClient } from '../../generated/prisma/client'
+import type { PrismaClient } from '../../generated/prisma/client'
 import type { Candidate } from '@/lib/apify'
+import { createTestDb, hasTestDb } from '../helpers/pgTestDb'
 
-/**
- * Applies every migration under prisma/migrations, in directory order, to a
- * fresh temp sqlite file. Mirrors the migration-application approach in
- * tests/migration/candidate-to-person.test.ts, so this test exercises the
- * real (current) schema rather than a hand-copied subset of it.
- */
-function applyAllMigrations(file: string): void {
-  const root = join(process.cwd(), 'prisma', 'migrations')
-  const dirs = readdirSync(root)
-    .filter((name) => name !== 'migration_lock.toml')
-    .sort()
-  const db = new Database(file)
-  try {
-    for (const dir of dirs) {
-      const sql = readFileSync(join(root, dir, 'migration.sql'), 'utf8')
-      db.exec(sql)
-    }
-  } finally {
-    db.close()
-  }
-}
-
-const tempDir = mkdtempSync(join(tmpdir(), 'hrd-profile-storage-'))
-const dbFile = join(tempDir, 'test.db')
-applyAllMigrations(dbFile)
-const adapter = new PrismaBetterSqlite3({ url: `file:${dbFile}` })
-const testPrisma = new PrismaClient({ adapter })
+const db = hasTestDb ? await createTestDb() : undefined
+const testPrisma = db?.prisma as PrismaClient
 
 // profileStorage.ts imports the app's singleton `prisma` from src/lib/prisma,
-// which connects to process.env.DATABASE_URL (the real dev.db) at module
+// which connects to process.env.DATABASE_URL (the real database) at module
 // load. Mocking the module (rather than pointing at dev.db, or trying to
 // mutate the live-bound export after the fact) is what lets this test run
 // against an isolated temp database instead of the app's own data.
@@ -67,10 +38,9 @@ function candidate(overrides: Partial<Candidate> = {}): Candidate {
   }
 }
 
-describe('profileStorage', () => {
+describe.skipIf(!hasTestDb)('profileStorage', () => {
   afterAll(async () => {
-    await testPrisma.$disconnect()
-    rmSync(tempDir, { recursive: true, force: true })
+    await db?.cleanup()
   })
 
   it('creates a new Person on first upsert, recording its source', async () => {

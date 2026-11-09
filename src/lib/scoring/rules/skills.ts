@@ -35,7 +35,7 @@ export function scoreNiceToHaveSkills(
 ): RuleResult {
   const niceToHave = (filters.niceToHave ?? []).map((s) => s?.trim()).filter((s): s is string => Boolean(s));
 
-  const skillsUnverifiable = unsupportedFieldsFor(sourceId).has("skills");
+  const skillsUnverifiable = unsupportedFieldsFor(sourceId).has("skills") || candidate.skillsComplete === false;
   const unverifiableMustHave = skillsUnverifiable
     ? (filters.mustHave ?? []).map((s) => s?.trim()).filter((s): s is string => Boolean(s))
     : [];

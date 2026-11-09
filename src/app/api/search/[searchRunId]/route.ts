@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { fetchDatasetItems, getRunStatus } from "@/lib/apify";
+import { fetchDatasetItems, getRunDetails, startRun } from "@/lib/apify";
 import { requireApiUser } from "@/lib/auth/requireUser";
 import { prisma } from "@/lib/prisma";
 import { GATED_SCORE_SENTINEL } from "@/lib/scoring";
@@ -18,9 +18,12 @@ export async function GET(_req: Request, { params }: { params: Promise<{ searchR
     if (!searchRun) return NextResponse.json({ error: "Run not found" }, { status: 404 });
 
     let status = searchRun.status;
+    let statusMessage: string | undefined;
+    let actorIndex = 0;
+    let hasNext = false;
     if (searchRun.runId) {
       try {
-        status = await getRunStatus(searchRun.runId);
+        ({ status, statusMessage, actorIndex, hasNext } = await getRunDetails(searchRun.runId));
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         await prisma.searchRun.update({
@@ -48,11 +51,33 @@ export async function GET(_req: Request, { params }: { params: Promise<{ searchR
 
     if (status === "SUCCEEDED" && searchRun.datasetId && searchRun.itemCount === 0) {
       const filters = JSON.parse(searchRun.filters) as Partial<SearchFilters>;
-      const scraped = await fetchDatasetItems(searchRun.datasetId, filters.limit ?? 50);
+      const scraped = await fetchDatasetItems(searchRun.datasetId, filters.limit ?? 50, actorIndex);
 
       for (const candidate of scraped) {
         if (!candidate.profileUrl) continue;
         await recordAppearance(searchRun.id, candidate, filters, searchRun.source ?? undefined);
+      }
+
+      // An empty result with a status message from the actor is a refusal
+      // (quota, plan limit, bad input), not "no matches" — report it as one.
+      if (scraped.length === 0 && statusMessage && /limit|quota|upgrade|credit|fail|error|invalid/i.test(statusMessage)) {
+        // Another configured actor can take over (e.g. this one hit a free-plan
+        // run cap): start it on the same search and keep the client polling.
+        if (hasNext) {
+          try {
+            const next = await startRun(filters, actorIndex + 1);
+            await prisma.searchRun.update({
+              where: { id: searchRun.id },
+              data: { runId: next.runId, datasetId: next.datasetId, status: "RUNNING", failureReason: null, itemCount: 0 },
+            });
+            return NextResponse.json({ status: "RUNNING" });
+          } catch {
+            // fall through and report the original actor's refusal
+          }
+        }
+        const failureReason = `Apify actor returned nothing: ${statusMessage}`;
+        await prisma.searchRun.update({ where: { id: searchRun.id }, data: { status: "FAILED", failureReason } });
+        return NextResponse.json({ status: "FAILED", failureReason, itemCount: 0, candidates: [] });
       }
 
       await prisma.searchRun.update({

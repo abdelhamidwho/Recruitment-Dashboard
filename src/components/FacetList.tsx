@@ -25,7 +25,7 @@ export function FacetList({
   if (values.length === 0) return null;
   return (
     <div>
-      <p className="text-xs font-medium text-muted-foreground mb-1.5">{label}</p>
+      <p className="text-base font-medium mb-1.5">{label}</p>
       <ul className="space-y-0.5">
         {values.map((v) => {
           const isSelected = selected.includes(v.value);
@@ -37,7 +37,7 @@ export function FacetList({
                 onClick={() => onToggle(v.value)}
                 aria-pressed={isSelected}
                 className={cn(
-                  "w-full flex items-center justify-between gap-2 rounded-md px-2 py-1 text-xs transition-colors",
+                  "w-full flex items-center justify-between gap-2 rounded-md px-3 py-2 text-base transition-colors",
                   isSelected ? "bg-primary text-primary-foreground" : "hover:bg-muted",
                   isNotSpecified && !isSelected && "text-muted-foreground italic",
                 )}

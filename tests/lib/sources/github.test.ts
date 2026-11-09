@@ -166,9 +166,9 @@ describe('formatRateLimitError', () => {
 })
 
 describe('source registry', () => {
-  it('registers github and only github', () => {
+  it('registers github and linkedin-xray (Apify is handled separately)', () => {
     expect(getSource('github')).toBe(githubSource)
-    expect(listSources().map((s) => s.id)).toEqual(['github'])
+    expect(listSources().map((s) => s.id)).toEqual(['github', 'linkedin-xray'])
   })
 
   it('throws a clear error for an unknown source id', () => {

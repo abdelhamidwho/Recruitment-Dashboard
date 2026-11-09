@@ -5,7 +5,7 @@ import Database from 'better-sqlite3'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 function migrationSql(match: string): string {
-  const root = join(process.cwd(), 'prisma', 'migrations')
+  const root = join(process.cwd(), 'prisma', 'sqlite-history')
   const dir = readdirSync(root).find((name) => name.includes(match))
   if (!dir) throw new Error(`no migration directory matching "${match}"`)
   return readFileSync(join(root, dir, 'migration.sql'), 'utf8')

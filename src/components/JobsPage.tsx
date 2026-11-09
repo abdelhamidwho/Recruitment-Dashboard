@@ -72,7 +72,7 @@ export function JobsPage() {
           {jobs.map((job) => (
             <li key={job.id} className="p-3 flex items-center justify-between gap-2">
               <div>
-                <Link href={`/jobs/${job.id}`} className="font-medium text-blue-600 hover:underline">
+                <Link href={`/jobs/${job.id}`} className="font-medium text-primary hover:underline">
                   {job.title}
                 </Link>
                 {job.location && <span className="text-sm text-muted-foreground"> — {job.location}</span>}

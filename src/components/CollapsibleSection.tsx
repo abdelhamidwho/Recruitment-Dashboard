@@ -28,13 +28,13 @@ export function CollapsibleSection({
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className="w-full flex items-center justify-between gap-2 py-2.5 text-left text-sm font-medium hover:text-foreground/80"
+        className="w-full flex items-center justify-between gap-2 py-3 text-left text-base font-semibold hover:text-foreground/80"
       >
         <span className="flex items-center gap-2">
           {title}
           {badge}
         </span>
-        <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+        <ChevronDown className={cn("h-6 w-6 shrink-0 text-[var(--brand)] transition-transform", open && "rotate-180")} />
       </button>
       {open && <div className="pb-4 space-y-4">{children}</div>}
     </div>

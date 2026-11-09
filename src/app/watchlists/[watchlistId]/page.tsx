@@ -1,5 +1,7 @@
+import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { requireUser } from "@/lib/auth/requireUser";
+import { PageHeader } from "@/components/PageHeader";
 import { WatchlistDetail } from "@/components/WatchlistDetail";
 
 export default async function WatchlistDetailPage({ params }: { params: Promise<{ watchlistId: string }> }) {
@@ -7,9 +9,10 @@ export default async function WatchlistDetailPage({ params }: { params: Promise<
   const { watchlistId } = await params;
   return (
     <main className="min-h-screen bg-background">
-      <header className="border-b px-6 py-4">
-        <Link href="/watchlists" className="text-sm underline">← All watchlists</Link>
-      </header>
+      <>
+        <PageHeader />
+        <Link href="/watchlists" className="lux-nav-link mx-6 mt-4 inline-block"><ArrowLeft aria-hidden />All watchlists</Link>
+      </>
       <WatchlistDetail watchlistId={watchlistId} currentUserId={user.id} />
     </main>
   );

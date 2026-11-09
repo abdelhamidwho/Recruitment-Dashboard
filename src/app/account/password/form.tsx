@@ -29,7 +29,7 @@ export function PasswordForm() {
         <Input id="confirm" name="confirm" type="password" autoComplete="new-password" required />
       </div>
       {state?.error ? (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-destructive">
           {state.error}
         </p>
       ) : null}
